@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Western Front 1944-45</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <div id="topbar">
+    <span class="title">WESTERN FRONT 1944–45</span>
+    <div id="resource-bar" style="display:flex;gap:10px;"></div>
+    <div class="spacer"></div>
+    <div id="turn-info"></div>
+    <button id="end-turn-btn" class="primary">End Turn ▶</button>
+    <button id="save-btn">Save</button>
+    <button id="load-btn">Load</button>
+    <button id="newgame-btn">New Game</button>
+  </div>
+
+  <div id="main-layout">
+    <div id="map-panel">
+      <div id="map-viewport"></div>
+      <div class="map-controls">
+        <button id="zoom-in" title="Zoom in">+</button>
+        <button id="zoom-out" title="Zoom out">−</button>
+        <button id="zoom-reset" title="Reset view">⤾</button>
+      </div>
+      <div class="map-legend" id="map-legend"></div>
+    </div>
+
+    <div id="side-panel">
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="region">Region</button>
+        <button class="tab-btn" data-tab="orders">Orders</button>
+        <button class="tab-btn" data-tab="commanders">Commanders</button>
+        <button class="tab-btn" data-tab="upgrades">Upgrades</button>
+        <button class="tab-btn" data-tab="log">Log</button>
+      </div>
+      <div class="tab-content" id="tab-region"></div>
+      <div class="tab-content hidden" id="tab-orders"></div>
+      <div class="tab-content hidden" id="tab-commanders"></div>
+      <div class="tab-content hidden" id="tab-upgrades"></div>
+      <div class="tab-content hidden" id="tab-log"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="newgame-modal">
+  <div class="modal">
+    <h2>Western Front 1944–45</h2>
+    <p class="small">Normandy to Berlin. Simultaneous blind orders, region-based combat, three-resource economy. No backend — everything saves to your browser.</p>
+    <div id="continue-row" class="hidden">
+      <button id="continue-btn" class="primary" style="width:100%;margin:8px 0;">Continue Last Game</button>
+      <hr>
+    </div>
+    <h3>Choose your side</h3>
+    <div class="choice-group" id="faction-choice">
+      <div class="choice-card selected" data-faction="allies">
+        <div class="big">🇺🇸🇬🇧</div><div class="name">Allies</div>
+        <div class="d">Small Normandy beachhead. Must build up, break out, and drive to Berlin.</div>
+      </div>
+      <div class="choice-card" data-faction="axis">
+        <div class="big">🇩🇪</div><div class="name">Axis</div>
+        <div class="d">Hold the Atlantic Wall, bleed the invasion, defend the Reich to the last region.</div>
+      </div>
+    </div>
+    <h3>AI difficulty</h3>
+    <div class="diff-list" id="diff-choice"></div>
+    <button id="start-game-btn" class="primary" style="width:100%;padding:10px;">Start Campaign</button>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="saveload-modal">
+  <div class="modal">
+    <h2>Save / Load</h2>
+    <button id="save-now-btn" class="primary" style="width:100%;">Save Current Game</button>
+    <div id="saveload-list"></div>
+    <button id="close-saveload-btn" style="width:100%;margin-top:8px;">Close</button>
+  </div>
+</div>
+
+<div id="victory-banner" class="hidden">
+  <div class="box">
+    <h1 id="victory-title"></h1>
+    <p id="victory-reason" style="max-width:520px;"></p>
+    <button id="victory-newgame-btn" class="primary" style="margin-top:14px;">New Game</button>
+  </div>
+</div>
+
+<div class="toast-stack" id="toast-stack"></div>
+
+<script src="js/data/terrain.js"></script>
+<script src="js/data/units.js"></script>
+<script src="js/data/upgrades.js"></script>
+<script src="js/data/regions.js"></script>
+<script src="js/state.js"></script>
+<script src="js/movement.js"></script>
+<script src="js/supply.js"></script>
+<script src="js/morale.js"></script>
+<script src="js/combat.js"></script>
+<script src="js/economy.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/commanders.js"></script>
+<script src="js/turnEngine.js"></script>
+<script src="js/save.js"></script>
+<script src="js/mapRender.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
