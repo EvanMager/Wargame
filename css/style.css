@@ -1,4 +1,7 @@
 :root {
+  --font-display: 'Oswald', 'Arial Narrow', sans-serif;
+  --font-body: 'IBM Plex Sans', 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Consolas', monospace;
   --bg: #14161c;
   --panel: #1c1f28;
   --panel-alt: #23273307;
@@ -21,8 +24,22 @@
 html, body {
   margin: 0; padding: 0; height: 100%;
   background: var(--bg); color: var(--text);
-  font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+  font-family: var(--font-body);
   overflow: hidden;
+}
+
+h1, h2, h3, h4, .title, .card h4, .tab-btn, button,
+.choice-card .name, .diff-item .name, .modal h2, #victory-title,
+.resource-pill .icon { font-family: var(--font-display); }
+
+h1, h2, h3, .modal h2, #victory-title { text-transform: uppercase; letter-spacing: .6px; text-wrap: balance; }
+.card h4 { letter-spacing: 1px; }
+.tab-btn { text-transform: uppercase; letter-spacing: .8px; font-weight: 500; }
+button { text-transform: uppercase; letter-spacing: .4px; font-weight: 500; }
+
+.resource-pill .val, .resource-pill .delta, #turn-info, .u-str, .strength-bar,
+.log-entry .t, .unit-row .u-str, .cost, .build-row .cost {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
 }
 
 button {
@@ -90,8 +107,8 @@ hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 .region-hex { transition: filter .1s; }
 .region-node:hover .region-hex { filter: brightness(1.25); }
 .region-node.mine .region-hex { filter: saturate(1.1); }
-.region-label { font-size: 11.5px; fill: #fff; font-weight: 600; paint-order: stroke; stroke: #000; stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
-.unit-count { font-size: 13px; fill: #fff; font-weight: 700; pointer-events: none; }
+.region-label { font-family: var(--font-display); font-size: 12.5px; letter-spacing: .3px; fill: #fff; font-weight: 500; paint-order: stroke; stroke: #000; stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+.unit-count { font-family: var(--font-mono); font-size: 13px; fill: #fff; font-weight: 700; pointer-events: none; }
 .supply-flag { font-size: 10px; fill: var(--bad); font-weight: 700; pointer-events: none; }
 .capital-star { font-size: 15px; fill: var(--accent); pointer-events: none; }
 .coastal-mark { font-size: 13px; fill: #bcd7ee; pointer-events: none; }
