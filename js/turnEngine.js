@@ -40,7 +40,12 @@
     const u = state.units[unitId];
     if (!u || u.faction !== faction) return { ok: false, reason: 'Invalid unit.' };
     const def = Data.UNIT_TYPES[u.type];
-    if (!def.supportBonus && def.role !== 'air_superiority') return { ok: false, reason: 'That unit type has no support role.' };
+    // Ground units (incl. artillery) apply their support bonus automatically when
+    // present in a battle at their own location (see combat.js) — only air/naval
+    // units target a *different* region via a Support order.
+    if (def.category === 'ground' || (!def.supportBonus && def.role !== 'air_superiority')) {
+      return { ok: false, reason: 'That unit type has no support role.' };
+    }
     const options = global.WWG.Movement.supportOptions(state, u);
     if (options.indexOf(targetRegionId) === -1) return { ok: false, reason: 'Target is out of range.' };
     removeOrder(state, faction, unitId);

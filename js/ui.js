@@ -12,7 +12,7 @@
     heavy_armor: 'HVY', jet_fighter: 'JET'
   };
 
-  const ui = { state: null, activeTab: 'region', armedUnit: null };
+  const ui = { state: null, activeTab: 'region', armedUnit: null, selectedUnits: {} };
 
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function $(id) { return document.getElementById(id); }
@@ -28,35 +28,94 @@
 
   /* ---------------- Map interaction ---------------- */
 
-  function armUnit(unitId, mode) {
-    ui.armedUnit = { unitId: unitId, mode: mode };
+  // Arms one or many units at once for a move/support order — the quick-select
+  // toolbar in the Region tab lets the player check off a whole stack and move
+  // it in a single click-sequence instead of repeating per unit.
+  function armUnits(unitIds, mode) {
+    ui.armedUnit = { unitIds: unitIds.slice(), mode: mode };
     renderAll();
+  }
+  function armUnit(unitId, mode) { armUnits([unitId], mode); }
+
+  function intersect(a, b) { return a.filter(function (x) { return b.indexOf(x) !== -1; }); }
+
+  // Ground units (incl. artillery) apply their support bonus automatically when
+  // present in a battle at their own location — only air/naval units target a
+  // *different* region with a Support order. Mirrors turnEngine.addSupportOrder.
+  function hasSupportRole(u) {
+    const def = Data.UNIT_TYPES[u.type];
+    return def.category !== 'ground' && (def.supportBonus || def.role === 'air_superiority');
+  }
+
+  // Every unit type in the same region shares the same adjacent/transport
+  // reachability (it only depends on the region, not the unit), but support
+  // range depends on each unit's own move stat and paradrop is airborne-only —
+  // so a multi-unit selection only offers destinations every selected unit can
+  // actually reach.
+  function computeIntersectedOptions(state, unitIds) {
+    let adjacent = null, paradrop = null, transport = null, support = null;
+    unitIds.forEach(function (id) {
+      const u = state.units[id];
+      if (!u) return;
+      const opts = global.WWG.Movement.moveOptions(state, u);
+      const sup = hasSupportRole(u) ? global.WWG.Movement.supportOptions(state, u) : [];
+      adjacent = adjacent === null ? opts.adjacent : intersect(adjacent, opts.adjacent);
+      paradrop = paradrop === null ? opts.paradrop : intersect(paradrop, opts.paradrop);
+      transport = transport === null ? opts.transport : intersect(transport, opts.transport);
+      support = support === null ? sup : intersect(support, sup);
+    });
+    return { adjacent: adjacent || [], paradrop: paradrop || [], transport: transport || [], support: support || [] };
+  }
+
+  function selectedUnitIdsInCurrentRegion() {
+    const rid = ui.state.selectedRegion;
+    return Object.keys(ui.selectedUnits).filter(function (id) {
+      return ui.selectedUnits[id] && ui.state.units[id] && ui.state.units[id].regionId === rid;
+    });
   }
 
   function reachableForArmed() {
     if (!ui.armedUnit) return null;
-    const u = ui.state.units[ui.armedUnit.unitId];
-    if (!u) return null;
-    if (ui.armedUnit.mode === 'support') return global.WWG.Movement.supportOptions(ui.state, u);
-    const opts = global.WWG.Movement.moveOptions(ui.state, u);
-    if (ui.armedUnit.mode === 'paradrop') return opts.paradrop;
-    if (ui.armedUnit.mode === 'transport') return opts.transport;
-    return opts.adjacent;
+    const ids = ui.armedUnit.unitIds.filter(function (id) { return ui.state.units[id]; });
+    if (ids.length === 0) return null;
+    if (ui.armedUnit.mode === 'support') {
+      let result = null;
+      ids.forEach(function (id) {
+        const opts = global.WWG.Movement.supportOptions(ui.state, ui.state.units[id]);
+        result = result === null ? opts : intersect(result, opts);
+      });
+      return result || [];
+    }
+    let result = null;
+    ids.forEach(function (id) {
+      const opts = global.WWG.Movement.moveOptions(ui.state, ui.state.units[id]);
+      const pool = ui.armedUnit.mode === 'paradrop' ? opts.paradrop : (ui.armedUnit.mode === 'transport' ? opts.transport : opts.adjacent);
+      result = result === null ? pool : intersect(result, pool);
+    });
+    return result || [];
   }
 
   function handleRegionClick(regionId) {
     if (ui.armedUnit) {
       const faction = ui.state.playerFaction;
-      const res = ui.armedUnit.mode === 'support'
-        ? global.WWG.TurnEngine.addSupportOrder(ui.state, faction, ui.armedUnit.unitId, regionId)
-        : global.WWG.TurnEngine.addMoveOrder(ui.state, faction, ui.armedUnit.unitId, regionId, ui.armedUnit.mode);
+      const ids = ui.armedUnit.unitIds.filter(function (id) { return ui.state.units[id]; });
+      let okCount = 0, failReason = null;
+      ids.forEach(function (id) {
+        const res = ui.armedUnit.mode === 'support'
+          ? global.WWG.TurnEngine.addSupportOrder(ui.state, faction, id, regionId)
+          : global.WWG.TurnEngine.addMoveOrder(ui.state, faction, id, regionId, ui.armedUnit.mode);
+        if (res.ok) okCount++; else failReason = res.reason;
+      });
       ui.armedUnit = null;
-      if (!res.ok) showToast(res.reason);
+      ui.selectedUnits = {};
+      if (okCount === 0 && failReason) showToast(failReason);
+      else if (ids.length > 1) showToast(okCount + ' of ' + ids.length + ' orders placed.', 2500);
       renderAll();
       return;
     }
     ui.state.selectedRegion = regionId;
     ui.activeTab = 'region';
+    ui.selectedUnits = {};
     renderAll();
   }
 
@@ -121,20 +180,29 @@
       return '<span class="order-tag">⚡ support ' + esc(global.WWG.State.getRegion(supportOrder.targetRegionId).name) + '</span>' +
         '<button data-action="cancel-order" data-unit="' + u.id + '">✕</button>';
     }
-    const def = Data.UNIT_TYPES[u.type];
     const opts = global.WWG.Movement.moveOptions(state, u);
     let html = '';
-    const armed = ui.armedUnit && ui.armedUnit.unitId === u.id;
+    const armed = ui.armedUnit && ui.armedUnit.unitIds.indexOf(u.id) !== -1;
     if (opts.adjacent.length > 0) html += '<button data-action="arm-move" data-unit="' + u.id + '" data-mode="adjacent" class="' + (armed && ui.armedUnit.mode === 'adjacent' ? 'active' : '') + '">Move</button>';
     if (opts.paradrop.length > 0) html += '<button data-action="arm-move" data-unit="' + u.id + '" data-mode="paradrop" class="' + (armed && ui.armedUnit.mode === 'paradrop' ? 'active' : '') + '">Drop</button>';
     if (opts.transport.length > 0) html += '<button data-action="arm-move" data-unit="' + u.id + '" data-mode="transport" class="' + (armed && ui.armedUnit.mode === 'transport' ? 'active' : '') + '">Ship</button>';
-    if (def.supportBonus || def.role === 'air_superiority') html += '<button data-action="arm-support" data-unit="' + u.id + '" class="' + (armed && ui.armedUnit.mode === 'support' ? 'active' : '') + '">Support</button>';
+    if (hasSupportRole(u)) {
+      html += '<button data-action="arm-support" data-unit="' + u.id + '" class="' + (armed && ui.armedUnit.mode === 'support' ? 'active' : '') + '">Support</button>';
+    }
     return html;
   }
 
   function unitRowHtml(state, u) {
     const def = Data.UNIT_TYPES[u.type];
-    return '<div class="unit-row"><span class="u-icon">' + (UNIT_ICON[u.type] || '?') + '</span>' +
+    const faction = state.playerFaction;
+    const selectable = u.faction === faction &&
+      !global.WWG.TurnEngine.findMoveOrder(state, faction, u.id) &&
+      !global.WWG.TurnEngine.findSupportOrder(state, faction, u.id);
+    const checked = !!ui.selectedUnits[u.id];
+    const checkbox = selectable
+      ? '<input type="checkbox" class="unit-check" data-action="toggle-unit" data-unit="' + u.id + '" ' + (checked ? 'checked' : '') + '>'
+      : '<span class="unit-check-spacer"></span>';
+    return '<div class="unit-row' + (checked ? ' selected' : '') + '">' + checkbox + '<span class="u-icon">' + (UNIT_ICON[u.type] || '?') + '</span>' +
       '<span class="u-name">' + def.name + '</span>' +
       '<span class="u-str">' + Math.round(u.strength) + '%</span>' +
       '<div class="strength-bar"><div style="width:' + Math.max(0, Math.round(u.strength)) + '%"></div></div>' +
@@ -147,9 +215,17 @@
     const container = $('tab-region');
 
     if (ui.armedUnit) {
-      const u = state.units[ui.armedUnit.unitId];
+      const ids = ui.armedUnit.unitIds.filter(function (id) { return state.units[id]; });
+      let label;
+      if (ids.length === 1) {
+        label = Data.UNIT_TYPES[state.units[ids[0]].type].name;
+      } else {
+        const counts = {};
+        ids.forEach(function (id) { const n = Data.UNIT_TYPES[state.units[id].type].name; counts[n] = (counts[n] || 0) + 1; });
+        label = ids.length + ' units (' + Object.keys(counts).map(function (n) { return counts[n] + 'x ' + n; }).join(', ') + ')';
+      }
       container.innerHTML = '<div class="card"><h4>Choose a Destination</h4>' +
-        '<p class="small">' + (u ? Data.UNIT_TYPES[u.type].name : 'Unit') + ' — click a highlighted region on the map (' + ui.armedUnit.mode + ').</p>' +
+        '<p class="small">' + esc(label) + ' — click a highlighted region on the map (' + ui.armedUnit.mode + ').</p>' +
         '<button data-action="cancel-armed" style="width:100%;">Cancel</button></div>';
       wireDelegation();
       return;
@@ -174,8 +250,32 @@
 
     const units = global.WWG.State.unitsInRegion(state, rid);
     html += '<div class="card"><h4>Units (' + units.length + ')</h4>';
-    if (units.length === 0) html += '<p class="small">No units present — an undefended region.</p>';
-    else units.forEach(function (u) { html += unitRowHtml(state, u); });
+    if (units.length === 0) {
+      html += '<p class="small">No units present — an undefended region.</p>';
+    } else {
+      const selectableCount = units.filter(function (u) {
+        return u.faction === state.playerFaction &&
+          !global.WWG.TurnEngine.findMoveOrder(state, state.playerFaction, u.id) &&
+          !global.WWG.TurnEngine.findSupportOrder(state, state.playerFaction, u.id);
+      }).length;
+      if (selectableCount > 1) {
+        html += '<div class="quick-select-bar"><span class="small">Quick select:</span>' +
+          '<button data-action="select-all-units">All</button>' +
+          '<button data-action="select-none-units">None</button></div>';
+      }
+      units.forEach(function (u) { html += unitRowHtml(state, u); });
+
+      const selectedIds = selectedUnitIdsInCurrentRegion();
+      if (selectedIds.length > 1) {
+        const opts = computeIntersectedOptions(state, selectedIds);
+        html += '<div class="quick-move-bar">';
+        if (opts.adjacent.length) html += '<button class="primary" data-action="arm-move-multi" data-mode="adjacent">Move Selected (' + selectedIds.length + ')</button>';
+        if (opts.paradrop.length) html += '<button data-action="arm-move-multi" data-mode="paradrop">Drop Selected</button>';
+        if (opts.transport.length) html += '<button data-action="arm-move-multi" data-mode="transport">Ship Selected</button>';
+        if (opts.support.length) html += '<button data-action="arm-support-multi">Support Selected</button>';
+        html += '</div>';
+      }
+    }
     html += '</div>';
 
     if (isMine) {
@@ -390,6 +490,7 @@
       '<div class="rules-section"><h4>Controls</h4><ul>' +
       '<li>Click a region to open it in the <b>Region</b> tab.</li>' +
       '<li>Click a unit\'s <b>Move</b>/<b>Drop</b>/<b>Ship</b>/<b>Support</b> button, then click a highlighted destination on the map.</li>' +
+      '<li><b>Quick select</b>: when a region has more than one movable unit, check the boxes next to the ones you want (or hit <b>All</b>) and a "Move Selected" button appears — arm the whole stack and send it to one destination in a single click, instead of repeating per unit.</li>' +
       '<li>Review or cancel everything queued in the <b>Orders</b> tab before you commit.</li>' +
       '<li><b>Save</b>/<b>Load</b> in the top bar manage named save slots in your browser; the game also autosaves after every turn.</li>' +
       '</ul></div>';
@@ -411,6 +512,20 @@
 
       if (action === 'arm-move') armUnit(t.dataset.unit, t.dataset.mode);
       else if (action === 'arm-support') armUnit(t.dataset.unit, 'support');
+      else if (action === 'arm-move-multi') armUnits(selectedUnitIdsInCurrentRegion(), t.dataset.mode);
+      else if (action === 'arm-support-multi') armUnits(selectedUnitIdsInCurrentRegion(), 'support');
+      else if (action === 'toggle-unit') {
+        if (ui.selectedUnits[t.dataset.unit]) delete ui.selectedUnits[t.dataset.unit];
+        else ui.selectedUnits[t.dataset.unit] = true;
+        renderAll();
+      } else if (action === 'select-all-units') {
+        global.WWG.State.unitsInRegion(ui.state, ui.state.selectedRegion, faction).forEach(function (u) {
+          if (!global.WWG.TurnEngine.findMoveOrder(ui.state, faction, u.id) && !global.WWG.TurnEngine.findSupportOrder(ui.state, faction, u.id)) {
+            ui.selectedUnits[u.id] = true;
+          }
+        });
+        renderAll();
+      } else if (action === 'select-none-units') { ui.selectedUnits = {}; renderAll(); }
       else if (action === 'cancel-armed') { ui.armedUnit = null; renderAll(); }
       else if (action === 'cancel-order') { global.WWG.TurnEngine.removeOrder(ui.state, faction, t.dataset.unit); renderAll(); }
       else if (action === 'clear-orders') { global.WWG.TurnEngine.clearOrders(ui.state, faction); renderAll(); }
@@ -460,6 +575,7 @@
   function endTurn() {
     if (!ui.state || ui.state.gameOver) return;
     ui.armedUnit = null;
+    ui.selectedUnits = {};
     const results = global.WWG.TurnEngine.resolveTurn(ui.state);
     ui.state.selectedRegion = null;
     ui.state.lastBattleRegions = (results.battles || []).map(function (b) {
@@ -503,6 +619,7 @@
   function startNewGame(faction, difficulty) {
     ui.state = global.WWG.State.create(faction, difficulty);
     ui.armedUnit = null;
+    ui.selectedUnits = {};
     ui.activeTab = 'region';
     if (!global.WWG._mapInitialized) {
       global.WWG.MapRender.init('map-viewport', { onRegionClick: handleRegionClick });
@@ -530,7 +647,7 @@
       b.addEventListener('click', function () {
         const st = global.WWG.Save.load(b.getAttribute('data-save-load'));
         if (st) {
-          ui.state = st; ui.armedUnit = null; ui.activeTab = 'region';
+          ui.state = st; ui.armedUnit = null; ui.selectedUnits = {}; ui.activeTab = 'region';
           if (!global.WWG._mapInitialized) { global.WWG.MapRender.init('map-viewport', { onRegionClick: handleRegionClick }); global.WWG._mapInitialized = true; }
           $('saveload-modal').classList.add('hidden');
           $('victory-banner').classList.add('hidden');
@@ -563,7 +680,7 @@
     $('continue-btn').addEventListener('click', function () {
       const st = global.WWG.Save.load(global.WWG.Save.AUTOSAVE_SLOT);
       if (st) {
-        ui.state = st; ui.armedUnit = null; ui.activeTab = 'region';
+        ui.state = st; ui.armedUnit = null; ui.selectedUnits = {}; ui.activeTab = 'region';
         if (!global.WWG._mapInitialized) { global.WWG.MapRender.init('map-viewport', { onRegionClick: handleRegionClick }); global.WWG._mapInitialized = true; }
         $('newgame-modal').classList.add('hidden');
         renderAll();

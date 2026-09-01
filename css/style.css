@@ -177,6 +177,13 @@ hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 .strength-bar > div { height: 100%; background: var(--good); }
 .order-tag { font-size: 10.5px; color: var(--accent); }
 
+.unit-check { width: 15px; height: 15px; flex-shrink: 0; accent-color: var(--accent); cursor: pointer; }
+.unit-check-spacer { display: inline-block; width: 15px; flex-shrink: 0; }
+.quick-select-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.quick-select-bar button { padding: 3px 10px; font-size: 11px; }
+.quick-move-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.quick-move-bar button { flex: 1 1 auto; font-size: 11.5px; }
+
 .build-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12.5px; }
 .build-row .name { flex: 1; }
 .build-row .cost { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
