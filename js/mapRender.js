@@ -352,6 +352,9 @@
       if (!rs.supplied) {
         el('polygon', { points: pts(poly), 'class': 'unsupplied-overlay', fill: 'url(#hatchPattern)' }, g);
       }
+      if (state.mode === 'live' && global.WWG.LiveEngine && global.WWG.LiveEngine.attackersFor(state, r.id).length > 0) {
+        el('polygon', { points: pts(poly), fill: 'none', stroke: '#ff5a3c', 'stroke-width': 5, 'class': 'siege-ring' }, g);
+      }
 
       // Decorations anchored at the area's centroid so they stay put regardless of the cell's shape.
       const decor = el('g', { transform: 'translate(' + centroid.x.toFixed(1) + ',' + centroid.y.toFixed(1) + ')', 'pointer-events': 'none' }, g);

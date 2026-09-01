@@ -20,6 +20,7 @@
 }
 
 * { box-sizing: border-box; }
+.hidden { display: none !important; }
 
 html, body {
   margin: 0; padding: 0; height: 100%;
@@ -68,10 +69,11 @@ hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 
 /* ---------- Top bar ---------- */
 #topbar {
-  display: flex; align-items: center; gap: 18px;
+  display: flex; align-items: center; gap: 12px;
   padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--border);
   flex-shrink: 0; flex-wrap: wrap;
 }
+#live-controls button { padding: 6px 9px; }
 #topbar .title { font-weight: 700; letter-spacing: .5px; color: var(--accent); margin-right: 8px; }
 .resource-pill {
   display: flex; align-items: center; gap: 5px; background: var(--panel2);
@@ -81,6 +83,9 @@ hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 .resource-pill .val { font-weight: 700; min-width: 2ch; text-align: right; }
 .resource-pill .delta { font-size: 11px; color: var(--text-dim); }
 #topbar .spacer { flex: 1; }
+#live-controls { display: flex; gap: 5px; align-items: center; }
+#live-controls.hidden { display: none; }
+#live-pause-btn { width: 34px; padding: 6px 0; font-size: 15px; }
 #turn-info { font-size: 13px; color: var(--text-dim); text-align: right; }
 #turn-info b { color: var(--text); }
 
@@ -132,6 +137,11 @@ hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 @keyframes battle-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
 @media (prefers-reduced-motion: reduce) { .battle-marker circle { animation: none; } }
 
+/* Live mode: an area currently being attacked pulses a hot outline. */
+.siege-ring { pointer-events: none; animation: siege-pulse 1s ease-in-out infinite; }
+@keyframes siege-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .siege-ring { animation: none; } }
+
 /* ---------- Physical-map background ---------- */
 .map-caption { font-family: var(--font-display); font-size: 13px; letter-spacing: 3px; fill: rgba(220,230,235,.4); pointer-events: none; }
 .grid-label { font-family: var(--font-mono); font-size: 10px; fill: rgba(220,230,235,.28); pointer-events: none; }
@@ -166,13 +176,14 @@ hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 .pill.bad { background: rgba(201,79,79,.2); border-color: var(--bad); }
 
 .unit-row {
-  display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 6px 8px; border-radius: 5px;
   background: #1a1d26; margin-bottom: 5px; border: 1px solid transparent;
 }
 .unit-row.selected { border-color: var(--accent); background: #2a2415; }
 .unit-row .u-icon { width: 22px; text-align: center; }
-.unit-row .u-name { flex: 1; font-size: 12.5px; }
+.unit-row .u-name { flex: 1; font-size: 12.5px; min-width: 60px; }
 .unit-row .u-str { font-size: 11px; color: var(--text-dim); }
+.unit-row .stance-btn { padding: 4px 8px; font-size: 11px; }
 .strength-bar { width: 46px; height: 5px; background: #333; border-radius: 3px; overflow: hidden; }
 .strength-bar > div { height: 100%; background: var(--good); }
 .order-tag { font-size: 10.5px; color: var(--accent); }
@@ -239,6 +250,12 @@ hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 .battle-card.stalemate .bc-outcome { color: var(--warn); }
 .battle-card .bc-stats { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); margin-top: 4px; }
 .capture-card { display: flex; justify-content: space-between; font-size: 12.5px; padding: 6px 9px; border-radius: 5px; background: #1a1d26; margin-bottom: 6px; }
+
+/* ---------- Live mode: sieges ---------- */
+.siege-row { margin-bottom: 10px; }
+.siege-row:last-child { margin-bottom: 0; }
+.siege-bar, .siege-bar-mini { width: 100%; height: 8px; background: #2a2e3a; border-radius: 4px; overflow: hidden; margin: 5px 0; }
+.siege-fill { height: 100%; background: linear-gradient(90deg, #ff8a4c, #ff5a3c); transition: width .4s ease; }
 
 /* ---------- Rules tab ---------- */
 .rules-section { margin-bottom: 14px; }

@@ -18,6 +18,12 @@
     <div class="spacer"></div>
     <div id="turn-info"></div>
     <button id="end-turn-btn" class="primary">End Turn ▶</button>
+    <div id="live-controls" class="hidden">
+      <button id="live-pause-btn" class="primary" title="Pause/resume the clock">⏸</button>
+      <button id="live-speed-1" class="active" data-speed="1">1x</button>
+      <button id="live-speed-2" data-speed="2">2x</button>
+      <button id="live-speed-4" data-speed="4">4x</button>
+    </div>
     <button id="save-btn">Save</button>
     <button id="load-btn">Load</button>
     <button id="newgame-btn">New Game</button>
@@ -37,7 +43,7 @@
     <div id="side-panel">
       <div class="tabs">
         <button class="tab-btn active" data-tab="region">Region</button>
-        <button class="tab-btn" data-tab="orders">Orders</button>
+        <button class="tab-btn" data-tab="orders" id="orders-tab-btn">Orders</button>
         <button class="tab-btn" data-tab="commanders">Commanders</button>
         <button class="tab-btn" data-tab="upgrades">Upgrades</button>
         <button class="tab-btn" data-tab="log">Log</button>
@@ -60,6 +66,17 @@
     <div id="continue-row" class="hidden">
       <button id="continue-btn" class="primary" style="width:100%;margin:8px 0;">Continue Last Game</button>
       <hr>
+    </div>
+    <h3>Game mode</h3>
+    <div class="choice-group" id="mode-choice">
+      <div class="choice-card selected" data-mode="classic">
+        <div class="big">⏱️</div><div class="name">Classic</div>
+        <div class="d">Simultaneous blind orders, resolved together each half-month turn.</div>
+      </div>
+      <div class="choice-card" data-mode="live">
+        <div class="big">⚡</div><div class="name">Live</div>
+        <div class="d">The clock never stops. Set units to Attack, Defend, or Hold whenever you like.</div>
+      </div>
     </div>
     <h3>Choose your side</h3>
     <div class="choice-group" id="faction-choice">
@@ -118,6 +135,7 @@
 <script src="js/ai.js"></script>
 <script src="js/commanders.js"></script>
 <script src="js/turnEngine.js"></script>
+<script src="js/liveEngine.js"></script>
 <script src="js/save.js"></script>
 <script src="js/mapRender.js"></script>
 <script src="js/ui.js"></script>

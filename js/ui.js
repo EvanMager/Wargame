@@ -78,6 +78,14 @@
     if (!ui.armedUnit) return null;
     const ids = ui.armedUnit.unitIds.filter(function (id) { return ui.state.units[id]; });
     if (ids.length === 0) return null;
+    if (ui.armedUnit.mode === 'attack') {
+      let result = null;
+      ids.forEach(function (id) {
+        const targets = global.WWG.LiveEngine.attackableTargets(ui.state, ui.state.units[id]);
+        result = result === null ? targets : intersect(result, targets);
+      });
+      return result || [];
+    }
     if (ui.armedUnit.mode === 'support') {
       let result = null;
       ids.forEach(function (id) {
@@ -100,12 +108,18 @@
       const faction = ui.state.playerFaction;
       const ids = ui.armedUnit.unitIds.filter(function (id) { return ui.state.units[id]; });
       let okCount = 0, failReason = null;
-      ids.forEach(function (id) {
-        const res = ui.armedUnit.mode === 'support'
-          ? global.WWG.TurnEngine.addSupportOrder(ui.state, faction, id, regionId)
-          : global.WWG.TurnEngine.addMoveOrder(ui.state, faction, id, regionId, ui.armedUnit.mode);
-        if (res.ok) okCount++; else failReason = res.reason;
-      });
+      if (ui.state.mode === 'live' && ui.armedUnit.mode === 'attack') {
+        global.WWG.LiveEngine.setStance(ui.state, faction, ids, 'attacking', regionId).forEach(function (r) {
+          if (r.ok) okCount++; else failReason = r.reason;
+        });
+      } else {
+        ids.forEach(function (id) {
+          const res = ui.armedUnit.mode === 'support'
+            ? global.WWG.TurnEngine.addSupportOrder(ui.state, faction, id, regionId)
+            : global.WWG.TurnEngine.addMoveOrder(ui.state, faction, id, regionId, ui.armedUnit.mode);
+          if (res.ok) okCount++; else failReason = res.reason;
+        });
+      }
       ui.armedUnit = null;
       ui.selectedUnits = {};
       if (okCount === 0 && failReason) showToast(failReason);
@@ -145,11 +159,27 @@
       pill('⛽', 'Fuel', fs.fuel, inc.fuel - up.fuel);
 
     const diff = global.WWG.AI.difficultyParams(state.difficulty);
-    $('turn-info').innerHTML = 'Turn <b>' + state.turn + '</b> — ' + global.WWG.State.dateLabel(state) +
-      ' &nbsp;|&nbsp; You: <b class="pill ' + state.playerFaction + '">' + global.WWG.State.factionLabel(state.playerFaction) + '</b>' +
-      ' vs AI (<b>' + diff.label + '</b>)';
+    const isLive = state.mode === 'live';
 
-    $('end-turn-btn').disabled = !!state.gameOver;
+    if (isLive) {
+      $('turn-info').innerHTML = '<b>LIVE</b> — Vturn <b>' + state.vturn + '</b>/' + global.WWG.LiveEngine.CAMPAIGN_VTURN_LIMIT + ' — ' + global.WWG.State.dateLabel(state) +
+        ' &nbsp;|&nbsp; You: <b class="pill ' + state.playerFaction + '">' + global.WWG.State.factionLabel(state.playerFaction) + '</b>' +
+        ' vs AI (<b>' + diff.label + '</b>)';
+      $('end-turn-btn').classList.add('hidden');
+      $('live-controls').classList.remove('hidden');
+      $('live-pause-btn').textContent = state.paused ? '▶' : '⏸';
+      document.querySelectorAll('#live-controls [data-speed]').forEach(function (b) {
+        b.classList.toggle('active', Number(b.dataset.speed) === state.speed);
+      });
+    } else {
+      $('turn-info').innerHTML = 'Turn <b>' + state.turn + '</b> — ' + global.WWG.State.dateLabel(state) +
+        ' &nbsp;|&nbsp; You: <b class="pill ' + state.playerFaction + '">' + global.WWG.State.factionLabel(state.playerFaction) + '</b>' +
+        ' vs AI (<b>' + diff.label + '</b>)';
+      $('end-turn-btn').classList.remove('hidden');
+      $('live-controls').classList.add('hidden');
+      $('end-turn-btn').disabled = !!state.gameOver;
+    }
+    $('orders-tab-btn').textContent = isLive ? 'Status' : 'Orders';
   }
 
   function renderTabs() {
@@ -159,12 +189,13 @@
     document.querySelectorAll('.tab-btn').forEach(function (b) {
       b.classList.toggle('active', b.dataset.tab === ui.activeTab);
     });
+    const isLive = ui.state.mode === 'live';
     if (ui.activeTab === 'region') renderRegionTab();
-    else if (ui.activeTab === 'orders') renderOrdersTab();
-    else if (ui.activeTab === 'commanders') renderCommandersTab();
+    else if (ui.activeTab === 'orders') { if (isLive) renderLiveStatusTab(); else renderOrdersTab(); }
+    else if (ui.activeTab === 'commanders') { if (isLive) renderLiveCommandersTab(); else renderCommandersTab(); }
     else if (ui.activeTab === 'upgrades') renderUpgradesTab();
     else if (ui.activeTab === 'log') renderLogTab();
-    else if (ui.activeTab === 'rules') renderRulesTab();
+    else if (ui.activeTab === 'rules') { if (isLive) renderLiveRulesTab(); else renderRulesTab(); }
   }
 
   function unitActionButtons(state, u) {
@@ -192,12 +223,38 @@
     return html;
   }
 
+  // Live mode: units don't get one-shot orders, they get a stance that holds
+  // until changed — so all three buttons are always shown, with the active
+  // one highlighted, instead of disappearing once "used" like classic mode.
+  function liveUnitActionButtons(state, u) {
+    const faction = state.playerFaction;
+    if (u.faction !== faction) return '';
+    if (Data.UNIT_TYPES[u.type].category !== 'ground') {
+      return '<span class="small" style="color:var(--text-dim);">passive in Live v1</span>';
+    }
+    const LiveEngine = global.WWG.LiveEngine;
+    const armed = ui.armedUnit && ui.armedUnit.mode === 'attack' && ui.armedUnit.unitIds.indexOf(u.id) !== -1;
+    let tag = '';
+    if (u.stance === 'attacking' && u.attackTargetRegionId) {
+      tag = '<span class="order-tag">⚔ attacking ' + esc(global.WWG.State.getRegion(u.attackTargetRegionId).name) + '</span>';
+    }
+    const targets = LiveEngine.attackableTargets(state, u);
+    let html = tag;
+    if (targets.length > 0) {
+      html += '<button class="stance-btn ' + (armed ? 'active' : '') + '" data-action="arm-attack" data-unit="' + u.id + '">Attack</button>';
+    }
+    html += '<button class="stance-btn ' + (u.stance === 'defending' ? 'active' : '') + '" data-action="set-live-stance" data-unit="' + u.id + '" data-stance="defending">Defend</button>';
+    html += '<button class="stance-btn ' + (u.stance === 'idle' ? 'active' : '') + '" data-action="set-live-stance" data-unit="' + u.id + '" data-stance="idle">Hold</button>';
+    return html;
+  }
+
   function unitRowHtml(state, u) {
     const def = Data.UNIT_TYPES[u.type];
     const faction = state.playerFaction;
-    const selectable = u.faction === faction &&
-      !global.WWG.TurnEngine.findMoveOrder(state, faction, u.id) &&
-      !global.WWG.TurnEngine.findSupportOrder(state, faction, u.id);
+    const isLive = state.mode === 'live';
+    const selectable = u.faction === faction && (isLive
+      ? Data.UNIT_TYPES[u.type].category === 'ground'
+      : (!global.WWG.TurnEngine.findMoveOrder(state, faction, u.id) && !global.WWG.TurnEngine.findSupportOrder(state, faction, u.id)));
     const checked = !!ui.selectedUnits[u.id];
     const checkbox = selectable
       ? '<input type="checkbox" class="unit-check" data-action="toggle-unit" data-unit="' + u.id + '" ' + (checked ? 'checked' : '') + '>'
@@ -206,7 +263,7 @@
       '<span class="u-name">' + def.name + '</span>' +
       '<span class="u-str">' + Math.round(u.strength) + '%</span>' +
       '<div class="strength-bar"><div style="width:' + Math.max(0, Math.round(u.strength)) + '%"></div></div>' +
-      unitActionButtons(state, u) + '</div>';
+      (isLive ? liveUnitActionButtons(state, u) : unitActionButtons(state, u)) + '</div>';
   }
 
   function renderRegionTab() {
@@ -248,15 +305,18 @@
     if (rd.railHub) html += '<div class="small">🚉 Rail hub — always a supply source when held.</div>';
     html += '</div>';
 
+    const isLive = state.mode === 'live';
+    if (isLive) html += renderSiegeCard(state, rid);
+
     const units = global.WWG.State.unitsInRegion(state, rid);
     html += '<div class="card"><h4>Units (' + units.length + ')</h4>';
     if (units.length === 0) {
       html += '<p class="small">No units present — an undefended region.</p>';
     } else {
       const selectableCount = units.filter(function (u) {
-        return u.faction === state.playerFaction &&
-          !global.WWG.TurnEngine.findMoveOrder(state, state.playerFaction, u.id) &&
-          !global.WWG.TurnEngine.findSupportOrder(state, state.playerFaction, u.id);
+        if (u.faction !== state.playerFaction) return false;
+        if (isLive) return Data.UNIT_TYPES[u.type].category === 'ground';
+        return !global.WWG.TurnEngine.findMoveOrder(state, state.playerFaction, u.id) && !global.WWG.TurnEngine.findSupportOrder(state, state.playerFaction, u.id);
       }).length;
       if (selectableCount > 1) {
         html += '<div class="quick-select-bar"><span class="small">Quick select:</span>' +
@@ -267,12 +327,19 @@
 
       const selectedIds = selectedUnitIdsInCurrentRegion();
       if (selectedIds.length > 1) {
-        const opts = computeIntersectedOptions(state, selectedIds);
         html += '<div class="quick-move-bar">';
-        if (opts.adjacent.length) html += '<button class="primary" data-action="arm-move-multi" data-mode="adjacent">Move Selected (' + selectedIds.length + ')</button>';
-        if (opts.paradrop.length) html += '<button data-action="arm-move-multi" data-mode="paradrop">Drop Selected</button>';
-        if (opts.transport.length) html += '<button data-action="arm-move-multi" data-mode="transport">Ship Selected</button>';
-        if (opts.support.length) html += '<button data-action="arm-support-multi">Support Selected</button>';
+        if (isLive) {
+          const targets = computeLiveIntersectedTargets(state, selectedIds);
+          if (targets.length) html += '<button class="primary" data-action="arm-attack-multi">Attack Selected (' + selectedIds.length + ')</button>';
+          html += '<button data-action="set-live-stance-multi" data-stance="defending">Defend Selected</button>';
+          html += '<button data-action="set-live-stance-multi" data-stance="idle">Hold Selected</button>';
+        } else {
+          const opts = computeIntersectedOptions(state, selectedIds);
+          if (opts.adjacent.length) html += '<button class="primary" data-action="arm-move-multi" data-mode="adjacent">Move Selected (' + selectedIds.length + ')</button>';
+          if (opts.paradrop.length) html += '<button data-action="arm-move-multi" data-mode="paradrop">Drop Selected</button>';
+          if (opts.transport.length) html += '<button data-action="arm-move-multi" data-mode="transport">Ship Selected</button>';
+          if (opts.support.length) html += '<button data-action="arm-support-multi">Support Selected</button>';
+        }
         html += '</div>';
       }
     }
@@ -287,10 +354,36 @@
     wireDelegation();
   }
 
+  function computeLiveIntersectedTargets(state, unitIds) {
+    let result = null;
+    unitIds.forEach(function (id) {
+      const u = state.units[id];
+      if (!u) return;
+      const targets = global.WWG.LiveEngine.attackableTargets(state, u);
+      result = result === null ? targets : intersect(result, targets);
+    });
+    return result || [];
+  }
+
+  // Shows the live-mode tug-of-war at this region, if anyone is currently attacking it.
+  function renderSiegeCard(state, rid) {
+    const attackers = global.WWG.LiveEngine.attackersFor(state, rid);
+    if (attackers.length === 0) return '';
+    const attackerFaction = attackers[0].faction;
+    const atkPower = global.WWG.LiveEngine.attackPower(state, attackers);
+    const defPower = global.WWG.LiveEngine.regionDefensePower(state, rid);
+    const pct = Math.max(4, Math.min(96, (atkPower / (atkPower + defPower)) * 100));
+    return '<div class="card"><h4>⚔ Under Attack</h4>' +
+      '<div class="row"><span class="lbl">Attacker</span><span class="pill ' + attackerFaction + '">' + global.WWG.State.factionLabel(attackerFaction) + ' — ' + attackers.length + ' unit(s)</span></div>' +
+      '<div class="siege-bar"><div class="siege-fill" style="width:' + pct.toFixed(0) + '%;"></div></div>' +
+      '<div class="small">Attack ' + atkPower.toFixed(1) + ' vs Defense ' + defPower.toFixed(1) + '</div></div>';
+  }
+
   function renderBuildSection(state, rid) {
     const faction = state.playerFaction;
     const fs = state.factions[faction];
     const rd = global.WWG.State.getRegion(rid);
+    const isLive = state.mode === 'live';
     let html = '<div class="card"><h4>Build</h4>';
     Object.keys(Data.UNIT_TYPES).forEach(function (type) {
       const def = Data.UNIT_TYPES[type];
@@ -301,7 +394,9 @@
         '<span class="cost">👥' + def.cost.manpower + ' 🏭' + def.cost.production + '</span>' +
         '<button data-action="build" data-unit-type="' + type + '" data-region="' + rid + '" ' + (afford ? '' : 'disabled') + '>Build</button></div>';
     });
-    html += '<p class="small">New units arrive at the start of next turn.</p></div>';
+    html += '<p class="small">' + (isLive
+      ? 'New units arrive after 1 virtual turn (~' + global.WWG.LiveEngine.VIRTUAL_TURN_SECONDS + 's at 1x speed).'
+      : 'New units arrive at the start of next turn.') + '</p></div>';
     return html;
   }
 
@@ -348,6 +443,56 @@
       '<div class="small"><b>' + idle.length + '</b> of <b>' + all.length + '</b> units idle.</div></div>';
 
     $('tab-orders').innerHTML = html;
+    wireDelegation();
+  }
+
+  function renderLiveStatusTab() {
+    const state = ui.state;
+    const faction = state.playerFaction;
+    const LiveEngine = global.WWG.LiveEngine;
+
+    let html = '<div class="card"><h4>Active Engagements</h4>';
+    const contested = Data.REGIONS.filter(function (r) { return LiveEngine.attackersFor(state, r.id).length > 0; });
+    if (contested.length === 0) {
+      html += '<p class="small">No engagements in progress.</p>';
+    } else {
+      contested.forEach(function (r) {
+        const attackers = LiveEngine.attackersFor(state, r.id);
+        const attackerFaction = attackers[0].faction;
+        const atkPower = LiveEngine.attackPower(state, attackers);
+        const defPower = LiveEngine.regionDefensePower(state, r.id);
+        const pct = Math.max(4, Math.min(96, (atkPower / (atkPower + defPower)) * 100));
+        html += '<div class="siege-row"><div class="row"><b>' + esc(r.name) + '</b><span class="pill ' + attackerFaction + '">' + global.WWG.State.factionLabel(attackerFaction) + ' attacking</span></div>' +
+          '<div class="siege-bar"><div class="siege-fill" style="width:' + pct.toFixed(0) + '%;"></div></div>' +
+          '<div class="small">' + attackers.length + ' unit(s) — attack ' + atkPower.toFixed(1) + ' vs defense ' + defPower.toFixed(1) + '</div></div>';
+      });
+    }
+    html += '</div>';
+
+    html += '<div class="card"><h4>Your Units Attacking</h4>';
+    const mine = global.WWG.State.allUnitsOf(state, faction).filter(function (u) { return u.stance === 'attacking'; });
+    if (mine.length === 0) {
+      html += '<p class="small">None right now — arm a unit with Attack in the Region tab.</p>';
+    } else {
+      mine.forEach(function (u) {
+        html += '<div class="row"><span>' + (UNIT_ICON[u.type] || '?') + ' ' + Data.UNIT_TYPES[u.type].name + ' → ' + esc(global.WWG.State.getRegion(u.attackTargetRegionId).name) + '</span>' +
+          '<button data-action="set-live-stance" data-unit="' + u.id + '" data-stance="idle">Recall</button></div>';
+      });
+    }
+    html += '</div>';
+
+    $('tab-orders').innerHTML = html;
+    wireDelegation();
+  }
+
+  function renderLiveCommandersTab() {
+    const state = ui.state;
+    const fs = state.factions[state.playerFaction];
+    let html = '<div class="card"><h4>Garrison Commander</h4>';
+    html += '<div class="row"><span class="lbl">Auto-defend idle units</span><button data-action="toggle-live-autodefend" class="' + (fs.liveAutoDefend ? 'active primary' : '') + '">' + (fs.liveAutoDefend ? 'ENABLED' : 'DISABLED') + '</button></div>';
+    html += '<p class="small">When enabled, any unit just sitting idle (not attacking or already dug in) is switched to Defend automatically each virtual turn, so reinforcements never sit at baseline readiness.</p></div>';
+    html += '<div class="card small">Full Front/Economic Commander automation is Classic-mode only for now — in Live mode you direct every attack yourself.</div>';
+    $('tab-commanders').innerHTML = html;
     wireDelegation();
   }
 
@@ -498,6 +643,52 @@
     $('tab-rules').innerHTML = html;
   }
 
+  function renderLiveRulesTab() {
+    const LiveEngine = global.WWG.LiveEngine;
+    const html =
+      '<div class="rules-section"><h4>Objective</h4><p>Same campaign as Classic mode — Allies win by capturing <b>Berlin</b>, Axis wins by holding it (or eliminating the Allied lodgement) until the campaign clock runs out. The difference here is the clock: it never stops for orders.</p></div>' +
+
+      '<div class="rules-section"><h4>The Clock</h4><p>' +
+      'There is no End Turn button. Time runs continuously — combat, economy, and reinforcements all happen while you watch. A ' +
+      '<b>virtual turn</b> (' + LiveEngine.VIRTUAL_TURN_SECONDS + ' seconds at 1x speed) is the pacing unit behind the scenes: supply, morale, ' +
+      'the AI\'s next move, and build-queue completions are all re-evaluated on that cadence, the same way they work in Classic mode — just automatically, ' +
+      'over and over, instead of once per click. Use <b>Pause</b> or the <b>1x/2x/4x</b> speed buttons in the top bar to control the pace.</p></div>' +
+
+      '<div class="rules-section"><h4>Stances, not Orders</h4><p>Every ground unit you control always has exactly one stance, changeable any time:</p><ul>' +
+      '<li><b>Attack</b> — pick an adjacent enemy region and the unit pushes into it continuously, wearing the defender down (and taking losses itself) every tick until it either captures the region, is ground down and repulsed, or you recall it.</li>' +
+      '<li><b>Defend</b> — dug in at home: a real defense bonus, but it isn\'t contributing anywhere else.</li>' +
+      '<li><b>Hold</b> — garrisoned at baseline readiness; can react instantly to Attack or Defend.</li>' +
+      '</ul><p class="small">A unit committed to an attack only defends its own region at a steep penalty while it\'s away — you can\'t push and hold everywhere at full strength at once. That trade-off is the whole game.</p></div>' +
+
+      '<div class="rules-section"><h4>Combat</h4><p>' +
+      'Instead of one big per-turn battle roll, an active attack is continuous attrition: both sides\' power (same attack/defense/morale/terrain/supply ' +
+      'math as Classic mode) is compared every tick and a small amount of strength is worn off both the attacker and defender, scaled to how lopsided the ' +
+      'fight is. A capture happens the moment the defending garrison\'s strength hits zero while attackers remain; an attack fails once the attackers ' +
+      'are ground down to nothing first. Reinforce a push or pull it back at any time — nothing is locked in until it resolves.</p></div>' +
+
+      '<div class="rules-section"><h4>Economy</h4><p>Manpower, Production, and Fuel accrue continuously (you\'ll see the resource bar tick up in real time) ' +
+      'using the exact same per-region income and upkeep numbers as Classic mode, just spread out per second instead of banked once a turn. Builds and ' +
+      'research work exactly as in Classic mode — spend from the Region tab\'s Build section or the Upgrades tab whenever you like.</p></div>' +
+
+      '<div class="rules-section"><h4>The AI</h4><p>The AI re-evaluates the whole map roughly once a virtual turn: it spends its economy, commits attacks ' +
+      'where it judges the odds favorable for its difficulty tier, and defends where it feels threatened — the same difficulty scaling (tactics and a ' +
+      'resource bonus at higher tiers) as Classic mode applies here too.</p></div>' +
+
+      '<div class="rules-section"><h4>Current limitations</h4><p class="small">This is the first pass at Live mode: air and naval units can be built and ' +
+      'garrisoned but don\'t yet have an active role (no Support stance in Live mode yet), and there\'s no Front/Economic Commander automation — only the ' +
+      'simple Garrison Commander auto-defend toggle. Everything else — the map, economy, supply, morale, upgrades, and AI difficulty — is the same system ' +
+      'as Classic mode underneath.</p></div>' +
+
+      '<div class="rules-section"><h4>Controls</h4><ul>' +
+      '<li>Click a region, then a unit\'s <b>Attack</b> button, then click a highlighted adjacent enemy region on the map.</li>' +
+      '<li><b>Defend</b>/<b>Hold</b> apply immediately — no target needed.</li>' +
+      '<li><b>Quick select</b> works the same as Classic mode: check off units (or hit <b>All</b>) for "Attack Selected" / "Defend Selected" / "Hold Selected".</li>' +
+      '<li>The <b>Status</b> tab (where Orders lives in Classic mode) lists every active engagement and lets you recall your attacks.</li>' +
+      '<li><b>Save</b>/<b>Load</b> work the same; the game autosaves periodically while live.</li>' +
+      '</ul></div>';
+    $('tab-rules').innerHTML = html;
+  }
+
   /* ---------------- Event delegation ---------------- */
 
   let delegated = false;
@@ -510,19 +701,33 @@
       const action = t.getAttribute('data-action');
       const faction = ui.state.playerFaction;
 
+      const isLive = ui.state.mode === 'live';
+
       if (action === 'arm-move') armUnit(t.dataset.unit, t.dataset.mode);
       else if (action === 'arm-support') armUnit(t.dataset.unit, 'support');
       else if (action === 'arm-move-multi') armUnits(selectedUnitIdsInCurrentRegion(), t.dataset.mode);
       else if (action === 'arm-support-multi') armUnits(selectedUnitIdsInCurrentRegion(), 'support');
-      else if (action === 'toggle-unit') {
+      else if (action === 'arm-attack') armUnit(t.dataset.unit, 'attack');
+      else if (action === 'arm-attack-multi') armUnits(selectedUnitIdsInCurrentRegion(), 'attack');
+      else if (action === 'set-live-stance') {
+        global.WWG.LiveEngine.setStance(ui.state, faction, [t.dataset.unit], t.dataset.stance, null);
+        renderAll();
+      } else if (action === 'set-live-stance-multi') {
+        global.WWG.LiveEngine.setStance(ui.state, faction, selectedUnitIdsInCurrentRegion(), t.dataset.stance, null);
+        ui.selectedUnits = {};
+        renderAll();
+      } else if (action === 'toggle-live-autodefend') {
+        const lfs = ui.state.factions[faction]; lfs.liveAutoDefend = !lfs.liveAutoDefend; renderAll();
+      } else if (action === 'toggle-unit') {
         if (ui.selectedUnits[t.dataset.unit]) delete ui.selectedUnits[t.dataset.unit];
         else ui.selectedUnits[t.dataset.unit] = true;
         renderAll();
       } else if (action === 'select-all-units') {
         global.WWG.State.unitsInRegion(ui.state, ui.state.selectedRegion, faction).forEach(function (u) {
-          if (!global.WWG.TurnEngine.findMoveOrder(ui.state, faction, u.id) && !global.WWG.TurnEngine.findSupportOrder(ui.state, faction, u.id)) {
-            ui.selectedUnits[u.id] = true;
-          }
+          const eligible = isLive
+            ? Data.UNIT_TYPES[u.type].category === 'ground'
+            : (!global.WWG.TurnEngine.findMoveOrder(ui.state, faction, u.id) && !global.WWG.TurnEngine.findSupportOrder(ui.state, faction, u.id));
+          if (eligible) ui.selectedUnits[u.id] = true;
         });
         renderAll();
       } else if (action === 'select-none-units') { ui.selectedUnits = {}; renderAll(); }
@@ -616,8 +821,41 @@
     });
   }
 
-  function startNewGame(faction, difficulty) {
-    ui.state = global.WWG.State.create(faction, difficulty);
+  /* ---------------- Live mode clock ---------------- */
+
+  const LIVE_TICK_MS = 400;
+  const LIVE_AUTOSAVE_EVERY_MS = 10000;
+
+  function stopLiveLoop() {
+    if (ui.liveIntervalId) { clearInterval(ui.liveIntervalId); ui.liveIntervalId = null; }
+  }
+
+  function startLiveLoop() {
+    stopLiveLoop();
+    let last = Date.now();
+    let sinceSave = 0;
+    ui.liveIntervalId = setInterval(function () {
+      const now = Date.now();
+      const dt = (now - last) / 1000;
+      last = now;
+      if (!ui.state || ui.state.mode !== 'live') { stopLiveLoop(); return; }
+      global.WWG.LiveEngine.tick(ui.state, dt);
+      renderAll();
+      sinceSave += LIVE_TICK_MS;
+      if (ui.state.gameOver) {
+        stopLiveLoop();
+        global.WWG.Save.save(ui.state, global.WWG.Save.AUTOSAVE_SLOT, 'Autosave');
+        showVictoryBanner(ui.state.gameOver);
+      } else if (sinceSave >= LIVE_AUTOSAVE_EVERY_MS) {
+        sinceSave = 0;
+        global.WWG.Save.save(ui.state, global.WWG.Save.AUTOSAVE_SLOT, 'Autosave');
+      }
+    }, LIVE_TICK_MS);
+  }
+
+  function startNewGame(faction, difficulty, mode) {
+    stopLiveLoop();
+    ui.state = mode === 'live' ? global.WWG.LiveEngine.createLiveState(faction, difficulty) : global.WWG.State.create(faction, difficulty);
     ui.armedUnit = null;
     ui.selectedUnits = {};
     ui.activeTab = 'region';
@@ -626,6 +864,7 @@
       global.WWG._mapInitialized = true;
     }
     $('victory-banner').classList.add('hidden');
+    if (mode === 'live') startLiveLoop();
     renderAll();
   }
 
@@ -647,10 +886,12 @@
       b.addEventListener('click', function () {
         const st = global.WWG.Save.load(b.getAttribute('data-save-load'));
         if (st) {
+          stopLiveLoop();
           ui.state = st; ui.armedUnit = null; ui.selectedUnits = {}; ui.activeTab = 'region';
           if (!global.WWG._mapInitialized) { global.WWG.MapRender.init('map-viewport', { onRegionClick: handleRegionClick }); global.WWG._mapInitialized = true; }
           $('saveload-modal').classList.add('hidden');
           $('victory-banner').classList.add('hidden');
+          if (st.mode === 'live') startLiveLoop();
           renderAll();
         }
       });
@@ -669,20 +910,29 @@
         c.classList.add('selected');
       });
     });
+    document.querySelectorAll('#mode-choice .choice-card').forEach(function (c) {
+      c.addEventListener('click', function () {
+        document.querySelectorAll('#mode-choice .choice-card').forEach(function (x) { x.classList.remove('selected'); });
+        c.classList.add('selected');
+      });
+    });
 
     $('start-game-btn').addEventListener('click', function () {
       const faction = document.querySelector('#faction-choice .choice-card.selected').dataset.faction;
       const difficulty = document.querySelector('#diff-choice .diff-item.selected').dataset.difficulty;
-      startNewGame(faction, difficulty);
+      const mode = document.querySelector('#mode-choice .choice-card.selected').dataset.mode;
+      startNewGame(faction, difficulty, mode);
       $('newgame-modal').classList.add('hidden');
     });
 
     $('continue-btn').addEventListener('click', function () {
       const st = global.WWG.Save.load(global.WWG.Save.AUTOSAVE_SLOT);
       if (st) {
+        stopLiveLoop();
         ui.state = st; ui.armedUnit = null; ui.selectedUnits = {}; ui.activeTab = 'region';
         if (!global.WWG._mapInitialized) { global.WWG.MapRender.init('map-viewport', { onRegionClick: handleRegionClick }); global.WWG._mapInitialized = true; }
         $('newgame-modal').classList.add('hidden');
+        if (st.mode === 'live') startLiveLoop();
         renderAll();
       }
     });
@@ -707,6 +957,18 @@
     });
 
     $('end-turn-btn').addEventListener('click', endTurn);
+    $('live-pause-btn').addEventListener('click', function () {
+      if (!ui.state) return;
+      ui.state.paused = !ui.state.paused;
+      renderAll();
+    });
+    document.querySelectorAll('#live-controls [data-speed]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (!ui.state) return;
+        ui.state.speed = Number(b.dataset.speed);
+        renderAll();
+      });
+    });
     $('battle-report-close-btn').addEventListener('click', function () {
       $('battle-report-modal').classList.add('hidden');
       if (ui.state.gameOver) showVictoryBanner(ui.state.gameOver);

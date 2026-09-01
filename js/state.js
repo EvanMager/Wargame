@@ -17,6 +17,7 @@
         front: { enabled: false, stance: 'balanced' },       // aggressive | balanced | defensive
         economic: { enabled: false, priority: 'balanced' }   // balanced | armor | infantry | air | navy | tech
       },
+      liveAutoDefend: false, // Live mode only (js/liveEngine.js): auto-set idle units to Defend
       isPlayer: !!isPlayer
     };
   }
@@ -114,7 +115,11 @@
       strength: strength == null ? 100 : strength,
       morale: 65,
       experience: 0,
-      justMoved: false
+      justMoved: false,
+      // Only meaningful in Live mode (js/liveEngine.js), but always present so a
+      // unit built mid-game (via the build queue) is never missing these fields.
+      stance: 'idle',
+      attackTargetRegionId: null
     };
     return state.units[id];
   }
