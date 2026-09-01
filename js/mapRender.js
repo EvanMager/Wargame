@@ -1,5 +1,7 @@
-/* SVG region-graph map: pannable/zoomable, regions colored by controller,
-   front line highlighted, supply/morale indicators, on top of a stylized
+/* SVG map: regions are fluid, contiguous areas (a Voronoi tessellation
+   built from each region's center point and clipped to the coastline),
+   colored by controller — so the front line is a real shared border
+   between two areas, not just a connecting line. On top of a stylized
    physical map (coastline, sea, rivers, grid reference, compass). Pure
    rendering + input capture — decisions about what a click *means* are
    delegated to a callback the UI module installs (onRegionClick). */
@@ -8,10 +10,10 @@
 
   const Data = global.WWG.Data;
   const SVG_NS = 'http://www.w3.org/2000/svg';
-  const NODE_R = 46;
   const VB_W = 950, VB_H = 870;
+  const ICON_R = 34; // decoration offset from each area's centroid
 
-  let svg, world, bgLayer, edgesLayer, regionsLayer, viewport;
+  let svg, world, bgLayer, connectorLayer, regionsLayer, frontLayer, viewport;
   let view = { x: 0, y: 0, scale: 1 };
   let dragging = false, dragStart = null, viewStart = null, dragMoved = false;
 
@@ -24,13 +26,24 @@
 
   // West/north coastline of the theatre, hand-fit around the region layout —
   // sea to the west/north, land (France/Benelux/Germany) filling the rest of
-  // the viewBox to the east/south.
-  const COASTLINE = 'M70,875 L65,700 L15,630 L85,560 L100,470 L25,400 L95,330 L170,290 ' +
-    'L230,190 L290,110 L345,35 L410,85 L445,60 L480,130 L530,55 L610,95 L650,40 ' +
-    'L950,10 L950,875 Z';
+  // the viewBox to the east/south. Doubles as the bounding shape every
+  // region's tessellated area is clipped to, so coastal areas hug the coast.
+  const COASTLINE_POINTS = [
+    { x: 70, y: 875 }, { x: 65, y: 700 }, { x: 15, y: 630 }, { x: 85, y: 560 }, { x: 100, y: 470 },
+    { x: 25, y: 400 }, { x: 95, y: 330 }, { x: 170, y: 290 }, { x: 230, y: 190 }, { x: 290, y: 110 },
+    { x: 345, y: 35 }, { x: 410, y: 85 }, { x: 445, y: 60 }, { x: 480, y: 130 }, { x: 530, y: 55 },
+    { x: 610, y: 95 }, { x: 650, y: 40 }, { x: 950, y: 10 }, { x: 950, y: 875 }
+  ];
+  const COASTLINE = 'M' + COASTLINE_POINTS.map(function (p) { return p.x + ',' + p.y; }).join(' L') + ' Z';
 
   const RHINE_PATH = 'M585,780 Q610,700 630,560 Q660,480 650,400 Q600,300 560,180 Q535,120 520,90';
   const SEINE_PATH = 'M370,540 Q340,500 320,470 Q280,430 270,400 Q230,360 220,330 Q195,300 170,270';
+
+  // Computed once in init() and reused by every render(): each region's
+  // clipped polygon, its centroid (decoration anchor), and — for every pair
+  // of data-adjacent regions — either the exact shared border segment (if
+  // their areas touch) or null (falls back to a thin connector line).
+  let regionPolygons = {}, regionCentroids = {}, sharedEdges = {};
 
   function el(tag, attrs, parent) {
     const e = document.createElementNS(SVG_NS, tag);
@@ -39,16 +52,95 @@
     return e;
   }
 
-  function hexPoints(cx, cy, r) {
-    const pts = [];
-    for (let i = 0; i < 6; i++) {
-      const a = Math.PI / 180 * (60 * i);
-      pts.push((cx + r * Math.cos(a)).toFixed(1) + ',' + (cy + r * Math.sin(a)).toFixed(1));
+  function edgeKey(a, b) { return a < b ? a + '|' + b : b + '|' + a; }
+
+  /* ---------------- Geometry: Voronoi-by-half-plane-clipping ---------------- */
+
+  // Sutherland-Hodgman clip of `poly` to the half-plane {P : P·d <= c}.
+  function clipHalfPlane(poly, d, c) {
+    const out = [];
+    const n = poly.length;
+    for (let i = 0; i < n; i++) {
+      const cur = poly[i], prev = poly[(i - 1 + n) % n];
+      const curVal = cur.x * d.x + cur.y * d.y, prevVal = prev.x * d.x + prev.y * d.y;
+      const curIn = curVal <= c, prevIn = prevVal <= c;
+      if (curIn !== prevIn) {
+        const t = (c - prevVal) / (curVal - prevVal);
+        out.push({ x: prev.x + t * (cur.x - prev.x), y: prev.y + t * (cur.y - prev.y) });
+      }
+      if (curIn) out.push(cur);
     }
-    return pts.join(' ');
+    return out;
   }
 
-  function edgeKey(a, b) { return a < b ? a + '|' + b : b + '|' + a; }
+  function bisector(a, b) {
+    const d = { x: b.x - a.x, y: b.y - a.y };
+    const c = (b.x * b.x + b.y * b.y - (a.x * a.x + a.y * a.y)) / 2;
+    return { d: d, c: c };
+  }
+
+  function computeVoronoiCell(site, allSites) {
+    let poly = COASTLINE_POINTS;
+    allSites.forEach(function (other) {
+      if (other === site) return;
+      const bi = bisector(site, other);
+      poly = clipHalfPlane(poly, bi.d, bi.c);
+    });
+    return poly;
+  }
+
+  function polygonCentroid(poly) {
+    let x = 0, y = 0, a = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const p0 = poly[i], p1 = poly[(i + 1) % poly.length];
+      const cross = p0.x * p1.y - p1.x * p0.y;
+      a += cross; x += (p0.x + p1.x) * cross; y += (p0.y + p1.y) * cross;
+    }
+    a *= 0.5;
+    if (Math.abs(a) < 1e-6) {
+      let sx = 0, sy = 0;
+      poly.forEach(function (p) { sx += p.x; sy += p.y; });
+      return { x: sx / poly.length, y: sy / poly.length };
+    }
+    return { x: x / (6 * a), y: y / (6 * a) };
+  }
+
+  // Finds the polygon edge of region `r`'s cell that lies exactly on its
+  // bisector with neighbor `n` — that edge IS the shared border. Returns
+  // null if the two areas don't geometrically touch (rare, given the layout).
+  function findSharedEdge(poly, siteA, siteB) {
+    const bi = bisector(siteA, siteB);
+    const eps = 0.75;
+    const onLine = function (p) { return Math.abs(p.x * bi.d.x + p.y * bi.d.y - bi.c) < eps; };
+    for (let i = 0; i < poly.length; i++) {
+      const p0 = poly[i], p1 = poly[(i + 1) % poly.length];
+      if (onLine(p0) && onLine(p1) && (Math.abs(p0.x - p1.x) > 0.5 || Math.abs(p0.y - p1.y) > 0.5)) {
+        return { a: p0, b: p1 };
+      }
+    }
+    return null;
+  }
+
+  function buildGeometry() {
+    const sites = Data.REGIONS;
+    regionPolygons = {}; regionCentroids = {}; sharedEdges = {};
+    sites.forEach(function (r) {
+      const poly = computeVoronoiCell(r, sites);
+      regionPolygons[r.id] = poly;
+      regionCentroids[r.id] = poly.length >= 3 ? polygonCentroid(poly) : { x: r.x, y: r.y };
+    });
+    const doneKey = {};
+    sites.forEach(function (r) {
+      r.neighbors.forEach(function (nId) {
+        const key = edgeKey(r.id, nId);
+        if (doneKey[key]) return;
+        doneKey[key] = true;
+        const n = Data.REGIONS_BY_ID[nId];
+        const edge = findSharedEdge(regionPolygons[r.id], r, n);
+        sharedEdges[key] = edge; // may be null -> fallback connector
+      });
+    });
+  }
 
   function init(containerId, callbacks) {
     viewport = document.getElementById(containerId);
@@ -57,9 +149,11 @@
     buildDefs();
     world = el('g', { id: 'map-world' }, svg);
     bgLayer = el('g', { 'class': 'bg-layer' }, world);
-    edgesLayer = el('g', { 'class': 'edges-layer' }, world);
+    connectorLayer = el('g', { 'class': 'connector-layer' }, world);
     regionsLayer = el('g', { 'class': 'regions-layer' }, world);
+    frontLayer = el('g', { 'class': 'front-layer' }, world);
 
+    buildGeometry();
     renderBackground();
 
     callbacks = callbacks || {};
@@ -131,6 +225,8 @@
     return '#c94f4f';
   }
 
+  function pts(poly) { return poly.map(function (p) { return p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' '); }
+
   /* ---------------- Static physical-map background (drawn once) ---------------- */
 
   function renderBackground() {
@@ -192,114 +288,122 @@
     el('text', { x: 50, y: -8, 'text-anchor': 'middle', 'class': 'map-caption' }, scale).textContent = '≈ 120 MI';
   }
 
-  /* ---------------- Region nodes (redrawn on every render) ---------------- */
+  /* ---------------- Region areas + front line (redrawn on every render) ---------------- */
 
   function categoryOf(unitType) {
     return Data.UNIT_TYPES[unitType].category;
   }
 
   function render(state, reachableIds) {
-    edgesLayer.innerHTML = '';
+    connectorLayer.innerHTML = '';
     regionsLayer.innerHTML = '';
-
-    const drawn = {};
-    Data.REGIONS.forEach(function (r) {
-      r.neighbors.forEach(function (nId) {
-        const key = edgeKey(r.id, nId);
-        if (drawn[key]) return;
-        drawn[key] = true;
-        const n = Data.REGIONS_BY_ID[nId];
-        const ownerA = state.regions[r.id].owner, ownerB = state.regions[nId].owner;
-        const isFront = ownerA !== ownerB;
-        el('line', {
-          x1: r.x, y1: r.y, x2: n.x, y2: n.y,
-          'class': isFront ? 'edge front-line' : 'edge',
-          stroke: isFront ? '#e0703d' : 'rgba(20,22,28,0.55)',
-          'stroke-width': isFront ? 4 : 2,
-          'stroke-dasharray': isFront ? '8,5' : 'none'
-        }, edgesLayer);
-      });
-    });
+    frontLayer.innerHTML = '';
 
     const battleMap = {};
     (state.lastBattleRegions || []).forEach(function (b) { battleMap[b.regionId] = b; });
 
+    // Pass 1: fallback connectors for any data-adjacent pair whose areas
+    // don't happen to geometrically touch (kept subtle; bright if contested).
+    const doneKey = {};
+    Data.REGIONS.forEach(function (r) {
+      r.neighbors.forEach(function (nId) {
+        const key = edgeKey(r.id, nId);
+        if (doneKey[key]) return;
+        doneKey[key] = true;
+        if (sharedEdges[key]) return; // real border exists, drawn in pass 3
+        const n = Data.REGIONS_BY_ID[nId];
+        const isFront = state.regions[r.id].owner !== state.regions[nId].owner;
+        el('line', {
+          x1: r.x, y1: r.y, x2: n.x, y2: n.y,
+          stroke: isFront ? '#e0703d' : 'rgba(180,190,205,0.18)',
+          'stroke-width': isFront ? 3 : 1.5,
+          'stroke-dasharray': isFront ? '7,4' : '3,4'
+        }, connectorLayer);
+      });
+    });
+
+    // Pass 2: the areas themselves.
     Data.REGIONS.forEach(function (r) {
       const rs = state.regions[r.id];
-      const g = el('g', { 'class': 'region-node', 'data-region': r.id, transform: 'translate(' + r.x + ',' + r.y + ')' }, regionsLayer);
+      const poly = regionPolygons[r.id];
+      if (!poly || poly.length < 3) return;
+      const centroid = regionCentroids[r.id];
       const terrain = Data.TERRAIN[r.terrain];
       const baseColor = FACTION_COLOR[rs.owner];
 
+      const g = el('g', { 'class': 'region-node', 'data-region': r.id }, regionsLayer);
       if (rs.owner === state.playerFaction) g.classList.add('mine');
 
-      if (reachableIds) {
-        const isReachable = reachableIds.indexOf(r.id) !== -1;
-        if (isReachable) {
-          el('circle', { r: NODE_R + 7, fill: 'none', stroke: '#4caf50', 'stroke-width': 4, 'stroke-dasharray': '7,4', 'class': 'reachable-ring' }, g);
-        } else {
-          g.setAttribute('opacity', '0.45');
-        }
-      }
-
-      el('polygon', { points: hexPoints(0, 0, NODE_R + 5), fill: 'rgba(6,7,10,0.35)' }, g);
-
-      const hex = el('polygon', {
-        points: hexPoints(0, 0, NODE_R),
-        fill: baseColor, stroke: terrain.color, 'stroke-width': 4,
-        'class': 'region-hex'
+      const area = el('polygon', {
+        points: pts(poly), fill: baseColor, stroke: terrain.color, 'stroke-width': 2,
+        'class': 'region-area'
       }, g);
 
-      if (state.selectedRegion === r.id) hex.setAttribute('stroke', '#ffd54a');
+      if (reachableIds) {
+        if (reachableIds.indexOf(r.id) !== -1) {
+          el('polygon', { points: pts(poly), fill: 'none', stroke: '#4caf50', 'stroke-width': 4, 'stroke-dasharray': '9,5', 'class': 'reachable-ring' }, g);
+        } else {
+          g.setAttribute('opacity', '0.4');
+        }
+      }
+      if (state.selectedRegion === r.id) {
+        el('polygon', { points: pts(poly), fill: 'none', stroke: '#ffd54a', 'stroke-width': 3.5, 'class': 'selected-ring' }, g);
+      }
       if (!rs.supplied) {
-        el('polygon', { points: hexPoints(0, 0, NODE_R), 'class': 'unsupplied-overlay', fill: 'url(#hatchPattern)' }, g);
-        el('text', { y: -NODE_R - 10, 'text-anchor': 'middle', 'class': 'supply-flag' }, g).textContent = '⚠ CUT OFF';
+        el('polygon', { points: pts(poly), 'class': 'unsupplied-overlay', fill: 'url(#hatchPattern)' }, g);
       }
 
-      if (r.capital) el('text', { x: NODE_R - 15, y: -NODE_R + 17, 'class': 'capital-star', 'text-anchor': 'middle' }, g).textContent = '★';
-      if (r.coastal) el('text', { x: -NODE_R + 13, y: -NODE_R + 17, 'class': 'coastal-mark', 'text-anchor': 'middle' }, g).textContent = '⚓';
-      if (r.railHub) el('text', { x: NODE_R - 15, y: NODE_R - 10, 'class': 'railhub-mark', 'text-anchor': 'middle' }, g).textContent = '🚉';
+      // Decorations anchored at the area's centroid so they stay put regardless of the cell's shape.
+      const decor = el('g', { transform: 'translate(' + centroid.x.toFixed(1) + ',' + centroid.y.toFixed(1) + ')', 'pointer-events': 'none' }, g);
 
-      const label = el('text', { y: -2, 'text-anchor': 'middle', 'class': 'region-label' }, g);
-      label.textContent = r.name;
+      if (!rs.supplied) el('text', { y: -ICON_R - 12, 'text-anchor': 'middle', 'class': 'supply-flag' }, decor).textContent = '⚠ CUT OFF';
+      if (r.capital) el('text', { x: ICON_R - 8, y: -ICON_R + 2, 'class': 'capital-star', 'text-anchor': 'middle' }, decor).textContent = '★';
+      if (r.coastal) el('text', { x: -ICON_R + 6, y: -ICON_R + 2, 'class': 'coastal-mark', 'text-anchor': 'middle' }, decor).textContent = '⚓';
+      if (r.railHub) el('text', { x: ICON_R - 6, y: ICON_R - 6, 'class': 'railhub-mark', 'text-anchor': 'middle' }, decor).textContent = '🚉';
+
+      el('text', { y: -2, 'text-anchor': 'middle', 'class': 'region-label' }, decor).textContent = r.name;
 
       const glyph = TERRAIN_GLYPH[r.terrain];
-      if (glyph) {
-        el('text', { y: 16, 'text-anchor': 'middle', 'class': 'terrain-glyph' }, g).textContent = glyph + ' ' + terrain.name;
-      }
+      if (glyph) el('text', { y: 14, 'text-anchor': 'middle', 'class': 'terrain-glyph' }, decor).textContent = glyph + ' ' + terrain.name;
 
-      // Unit presence: total badge (ringed by morale) just below the hex, plus a
-      // ground/air/naval composition line beneath that.
       const units = global.WWG.State.unitsInRegion(state, r.id, rs.owner);
       if (units.length > 0) {
         const morale = global.WWG.Morale.regionMorale(state, r.id, rs.owner);
-        el('circle', { cy: NODE_R + 16, r: 13, fill: '#1b1b22', stroke: moraleColor(morale), 'stroke-width': 3 }, g);
-        el('text', { y: NODE_R + 21, 'text-anchor': 'middle', 'class': 'unit-count' }, g).textContent = units.length;
+        el('circle', { cy: 34, r: 13, fill: '#1b1b22', stroke: moraleColor(morale), 'stroke-width': 3 }, decor);
+        el('text', { y: 39, 'text-anchor': 'middle', 'class': 'unit-count' }, decor).textContent = units.length;
 
         const counts = { ground: 0, air: 0, naval: 0 };
         units.forEach(function (u) { counts[categoryOf(u.type)]++; });
         const parts = ['ground', 'air', 'naval'].filter(function (c) { return counts[c] > 0; })
           .map(function (c) { return CATEGORY_ICON[c] + counts[c]; });
-        if (parts.length) {
-          el('text', { y: NODE_R + 40, 'text-anchor': 'middle', 'class': 'unit-composition' }, g).textContent = parts.join('  ');
-        }
+        if (parts.length) el('text', { y: 56, 'text-anchor': 'middle', 'class': 'unit-composition' }, decor).textContent = parts.join('  ');
       }
 
-      // Battle marker from the most recently resolved turn.
       const battle = battleMap[r.id];
       if (battle) {
-        const bx = -NODE_R + 2, by = -NODE_R - 2;
         const ringColor = battle.outcome === 'attacker_win' ? '#4caf50' : (battle.outcome === 'attacker_repulsed' ? '#c94f4f' : '#e0b13d');
-        const bg2 = el('g', { transform: 'translate(' + bx + ',' + by + ')', 'class': 'battle-marker' }, g);
-        el('circle', { r: 15, fill: '#1b1b22', stroke: ringColor, 'stroke-width': 3 }, bg2);
-        el('text', { y: 6, 'text-anchor': 'middle', 'class': 'battle-glyph' }, bg2).textContent = '⚔';
+        const bmark = el('g', { transform: 'translate(' + (-ICON_R + 2) + ',' + (-ICON_R - 14) + ')', 'class': 'battle-marker' }, decor);
+        el('circle', { r: 15, fill: '#1b1b22', stroke: ringColor, 'stroke-width': 3 }, bmark);
+        el('text', { y: 6, 'text-anchor': 'middle', 'class': 'battle-glyph' }, bmark).textContent = '⚔';
       }
 
-      g.addEventListener('click', function () {
+      area.addEventListener('click', function () {
         if (dragMoved) return; // was a pan, not a click
         if (global.WWG._mapCallbacks && global.WWG._mapCallbacks.onRegionClick) {
           global.WWG._mapCallbacks.onRegionClick(r.id);
         }
       });
+    });
+
+    // Pass 3: the front line itself — the real shared border between two areas
+    // held by different factions, drawn bold with a soft glow so it reads at a glance.
+    Object.keys(sharedEdges).forEach(function (key) {
+      const edge = sharedEdges[key];
+      if (!edge) return;
+      const ids = key.split('|');
+      if (state.regions[ids[0]].owner === state.regions[ids[1]].owner) return;
+      el('line', { x1: edge.a.x, y1: edge.a.y, x2: edge.b.x, y2: edge.b.y, 'class': 'front-line-glow' }, frontLayer);
+      el('line', { x1: edge.a.x, y1: edge.a.y, x2: edge.b.x, y2: edge.b.y, 'class': 'front-line-edge' }, frontLayer);
     });
   }
 

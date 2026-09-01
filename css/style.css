@@ -101,20 +101,30 @@ hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 }
 .map-legend span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .legend-swatch { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+.legend-front-swatch { width: 22px; height: 3px; border-radius: 2px; display: inline-block; background: #ffb47a; box-shadow: 0 0 6px 1px rgba(255,138,76,.8); }
 
-/* ---------- Region graph ---------- */
+/* ---------- Region areas ---------- */
 .region-node { cursor: pointer; }
-.region-hex { transition: filter .1s; }
-.region-node:hover .region-hex { filter: brightness(1.25); }
-.region-node.mine .region-hex { filter: saturate(1.1); }
+.region-area { transition: filter .1s; }
+.region-node:hover .region-area { filter: brightness(1.22); }
+.region-node.mine .region-area { filter: saturate(1.12); }
+.selected-ring, .reachable-ring { pointer-events: none; }
 .region-label { font-family: var(--font-display); font-size: 12.5px; letter-spacing: .3px; fill: #fff; font-weight: 500; paint-order: stroke; stroke: #000; stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
 .unit-count { font-family: var(--font-mono); font-size: 13px; fill: #fff; font-weight: 700; pointer-events: none; }
 .supply-flag { font-size: 10px; fill: var(--bad); font-weight: 700; pointer-events: none; }
 .capital-star { font-size: 15px; fill: var(--accent); pointer-events: none; }
 .coastal-mark { font-size: 13px; fill: #bcd7ee; pointer-events: none; }
 .unsupplied-overlay { pointer-events: none; opacity: .55; }
-.edge.front-line { filter: drop-shadow(0 0 3px rgba(224,112,61,.7)); }
 .railhub-mark { font-size: 12px; pointer-events: none; }
+
+/* The front line: the real shared border between two areas held by different
+   factions — a bright core stroke plus a soft blurred glow underneath so
+   contested ground reads at a glance, with a slow pulse to draw the eye. */
+.front-line-glow { stroke: #ff8a4c; stroke-width: 11; filter: blur(2.5px); animation: front-pulse-glow 2.4s ease-in-out infinite; }
+.front-line-edge { stroke: #ffb47a; stroke-width: 3.5; stroke-linecap: round; animation: front-pulse-edge 2.4s ease-in-out infinite; }
+@keyframes front-pulse-glow { 0%, 100% { opacity: .35; } 50% { opacity: .12; } }
+@keyframes front-pulse-edge { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .front-line-glow, .front-line-edge { animation: none; opacity: .35; } .front-line-edge { opacity: 1; } }
 .terrain-glyph { font-size: 9px; fill: #d8dbe4; opacity: .85; pointer-events: none; paint-order: stroke; stroke: #000; stroke-width: 2px; }
 .unit-composition { font-family: var(--font-mono); font-size: 11px; fill: #dfe3ec; pointer-events: none; paint-order: stroke; stroke: #0b0c10; stroke-width: 3px; }
 .battle-glyph { font-size: 15px; fill: #fff; pointer-events: none; }
@@ -132,7 +142,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
   width: 400px; flex-shrink: 0; background: var(--panel); border-left: 1px solid var(--border);
   display: flex; flex-direction: column; min-height: 0;
 }
-.tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.tabs { display: flex; gap: 3px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .tab-btn {
   flex: 1; background: transparent; border: none; border-radius: 0; padding: 9px 1px;
   color: var(--text-dim); font-size: 10.5px; border-bottom: 2px solid transparent; white-space: nowrap;

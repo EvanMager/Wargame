@@ -338,7 +338,7 @@
 
       '<div class="rules-section"><h4>The Map</h4><ul>' +
       '<li>21 regions from Normandy to Berlin, each with a <b>terrain</b> type that gives the defender a combat bonus and costs movement points.</li>' +
-      '<li>Regions are colored by controller (<span class="pill allies">Allies</span> / <span class="pill axis">Axis</span>); the dashed orange line is the <b>front line</b> — any edge between two regions held by different sides.</li>' +
+      '<li>Regions are fluid, contiguous areas colored by controller (<span class="pill allies">Allies</span> / <span class="pill axis">Axis</span>); wherever two areas held by different sides actually border each other, that border glows orange — that\'s the <b>front line</b>, and it shifts as territory changes hands.</li>' +
       '<li><span class="rules-kbd">⚓</span> coastal/port &nbsp; <span class="rules-kbd">🚉</span> rail hub &nbsp; <span class="rules-kbd">★</span> capital (Berlin) &nbsp; <span class="rules-kbd">⚠</span> cut off from supply &nbsp; <span class="rules-kbd">⚔</span> a battle happened here last turn.</li>' +
       '<li>Drag to pan, scroll or use the +/− buttons to zoom, click a region to inspect it.</li>' +
       '</ul></div>' +
@@ -605,8 +605,8 @@
     $('map-legend').innerHTML =
       '<span><span class="legend-swatch" style="background:' + global.WWG.MapRender.FACTION_COLOR.allies + '"></span>Allies</span>' +
       '<span><span class="legend-swatch" style="background:' + global.WWG.MapRender.FACTION_COLOR.axis + '"></span>Axis</span>' +
+      '<span class="legend-frontline"><span class="legend-front-swatch"></span>front line (glowing border)</span>' +
       '<span>⚠ = cut off from supply</span><span>⚓ = coastal/port</span><span>🚉 = rail hub</span><span>★ = capital</span>' +
-      '<span style="color:#e0703d;">┅┅</span><span>front line</span>' +
       '<span>⚔ = battle last turn</span><span>🪖 ground · ✈️ air · 🚢 naval</span>';
   }
 
