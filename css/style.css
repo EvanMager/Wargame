@@ -34,7 +34,7 @@ h1, h2, h3, h4, .title, .card h4, .tab-btn, button,
 
 h1, h2, h3, .modal h2, #victory-title { text-transform: uppercase; letter-spacing: .6px; text-wrap: balance; }
 .card h4 { letter-spacing: 1px; }
-.tab-btn { text-transform: uppercase; letter-spacing: .8px; font-weight: 500; }
+.tab-btn { text-transform: uppercase; letter-spacing: .2px; font-weight: 500; }
 button { text-transform: uppercase; letter-spacing: .4px; font-weight: 500; }
 
 .resource-pill .val, .resource-pill .delta, #turn-info, .u-str, .strength-bar,
@@ -114,6 +114,18 @@ hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 .coastal-mark { font-size: 13px; fill: #bcd7ee; pointer-events: none; }
 .unsupplied-overlay { pointer-events: none; opacity: .55; }
 .edge.front-line { filter: drop-shadow(0 0 3px rgba(224,112,61,.7)); }
+.railhub-mark { font-size: 12px; pointer-events: none; }
+.terrain-glyph { font-size: 9px; fill: #d8dbe4; opacity: .85; pointer-events: none; paint-order: stroke; stroke: #000; stroke-width: 2px; }
+.unit-composition { font-family: var(--font-mono); font-size: 11px; fill: #dfe3ec; pointer-events: none; paint-order: stroke; stroke: #0b0c10; stroke-width: 3px; }
+.battle-glyph { font-size: 15px; fill: #fff; pointer-events: none; }
+.battle-marker circle { animation: battle-pulse 1.6s ease-in-out infinite; }
+@keyframes battle-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) { .battle-marker circle { animation: none; } }
+
+/* ---------- Physical-map background ---------- */
+.map-caption { font-family: var(--font-display); font-size: 13px; letter-spacing: 3px; fill: rgba(220,230,235,.4); pointer-events: none; }
+.grid-label { font-family: var(--font-mono); font-size: 10px; fill: rgba(220,230,235,.28); pointer-events: none; }
+.compass-n { font-family: var(--font-display); font-size: 13px; fill: var(--accent); font-weight: 600; pointer-events: none; }
 
 /* ---------- Side panel ---------- */
 #side-panel {
@@ -122,8 +134,8 @@ hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 }
 .tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .tab-btn {
-  flex: 1; background: transparent; border: none; border-radius: 0; padding: 10px 4px;
-  color: var(--text-dim); font-size: 12.5px; border-bottom: 2px solid transparent;
+  flex: 1; background: transparent; border: none; border-radius: 0; padding: 9px 1px;
+  color: var(--text-dim); font-size: 10.5px; border-bottom: 2px solid transparent; white-space: nowrap;
 }
 .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); background: var(--panel2); }
 .tab-content { flex: 1; overflow-y: auto; padding: 12px 14px; min-height: 0; }
@@ -197,6 +209,31 @@ hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 .diff-item.selected { border-color: var(--accent); background: #2a2415; }
 .diff-item .name { font-weight: 700; }
 .diff-item .d { font-size: 11.5px; color: var(--text-dim); }
+
+#battle-report-box { width: 560px; }
+.battle-card { border: 1px solid var(--border); border-radius: 6px; padding: 9px 11px; margin-bottom: 8px; background: var(--panel2); }
+.battle-card.win { border-left: 4px solid var(--good); }
+.battle-card.repulsed { border-left: 4px solid var(--bad); }
+.battle-card.stalemate { border-left: 4px solid var(--warn); }
+.battle-card .bc-top { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+.battle-card .bc-outcome { font-family: var(--font-display); font-size: 11px; letter-spacing: .6px; text-transform: uppercase; }
+.battle-card.win .bc-outcome { color: var(--good); }
+.battle-card.repulsed .bc-outcome { color: var(--bad); }
+.battle-card.stalemate .bc-outcome { color: var(--warn); }
+.battle-card .bc-stats { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.capture-card { display: flex; justify-content: space-between; font-size: 12.5px; padding: 6px 9px; border-radius: 5px; background: #1a1d26; margin-bottom: 6px; }
+
+/* ---------- Rules tab ---------- */
+.rules-section { margin-bottom: 14px; }
+.rules-section h4 { color: var(--accent); font-size: 13.5px; text-transform: uppercase; letter-spacing: .6px; border-bottom: 1px solid var(--border); padding-bottom: 5px; margin-bottom: 8px; }
+.rules-section p, .rules-section li { font-size: 12.5px; line-height: 1.55; color: var(--text); }
+.rules-section ul { margin: 4px 0; padding-left: 18px; }
+.rules-section li { margin-bottom: 3px; }
+.rules-table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin: 6px 0; }
+.rules-table th, .rules-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.rules-table th { color: var(--accent); font-family: var(--font-display); letter-spacing: .4px; text-transform: uppercase; font-size: 10.5px; }
+.rules-table td.num { font-family: var(--font-mono); text-align: right; }
+.rules-kbd { display: inline-block; background: #0f1117; border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; font-family: var(--font-mono); font-size: 11px; }
 
 #saveload-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; margin: 8px 0; }
 .save-item { display: flex; justify-content: space-between; align-items: center; background: var(--panel2); border: 1px solid var(--border); border-radius: 5px; padding: 7px 9px; font-size: 12.5px; }

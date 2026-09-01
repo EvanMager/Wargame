@@ -94,7 +94,7 @@
   }
 
   function renderTabs() {
-    ['region', 'orders', 'commanders', 'upgrades', 'log'].forEach(function (t) {
+    ['region', 'orders', 'commanders', 'upgrades', 'log', 'rules'].forEach(function (t) {
       $('tab-' + t).classList.toggle('hidden', ui.activeTab !== t);
     });
     document.querySelectorAll('.tab-btn').forEach(function (b) {
@@ -105,6 +105,7 @@
     else if (ui.activeTab === 'commanders') renderCommandersTab();
     else if (ui.activeTab === 'upgrades') renderUpgradesTab();
     else if (ui.activeTab === 'log') renderLogTab();
+    else if (ui.activeTab === 'rules') renderRulesTab();
   }
 
   function unitActionButtons(state, u) {
@@ -301,6 +302,101 @@
     $('tab-log').innerHTML = html || '<p class="small">No events yet.</p>';
   }
 
+  function unitStatsRows() {
+    const groups = { ground: [], air: [], naval: [] };
+    Object.keys(Data.UNIT_TYPES).forEach(function (id) {
+      const d = Data.UNIT_TYPES[id];
+      if (d.requiresUpgrade) return; // covered separately under Upgrades
+      groups[d.category].push(d);
+    });
+    function rows(list) {
+      return list.map(function (d) {
+        return '<tr><td>' + d.name + '</td><td class="num">' + d.attack + '</td><td class="num">' + d.defense + '</td><td class="num">' + d.move + '</td>' +
+          '<td class="num">' + (d.needsFuel ? d.fuelUse : '—') + '</td><td class="num">' + d.cost.manpower + '/' + d.cost.production + '</td></tr>';
+      }).join('');
+    }
+    return '<table class="rules-table"><thead><tr><th>Unit</th><th>Atk</th><th>Def</th><th>Move</th><th>Fuel</th><th>Cost M/P</th></tr></thead><tbody>' +
+      rows(groups.ground) + '</tbody></table>' +
+      '<table class="rules-table"><thead><tr><th>Air</th><th>Atk</th><th>Def</th><th>Move</th><th>Fuel</th><th>Cost M/P</th></tr></thead><tbody>' +
+      rows(groups.air) + '</tbody></table>' +
+      '<table class="rules-table"><thead><tr><th>Naval</th><th>Atk</th><th>Def</th><th>Move</th><th>Fuel</th><th>Cost M/P</th></tr></thead><tbody>' +
+      rows(groups.naval) + '</tbody></table>';
+  }
+
+  function renderRulesTab() {
+    const html =
+      '<div class="rules-section"><h4>Objective</h4><p>' +
+      'Play the <b>Allies</b> and break out of the Normandy beachhead, drive east, and capture <b>Berlin</b> to win outright. ' +
+      'Play the <b>Axis</b> and hold — either push every Allied unit back into the sea, or simply survive with Berlin still in ' +
+      'German hands when the campaign clock runs out at turn 26 (roughly May 1945).</p></div>' +
+
+      '<div class="rules-section"><h4>Turns: Simultaneous Blind Orders</h4><p>' +
+      'Each turn is half a month. You queue up moves, support orders, builds and research, then press <b>End Turn</b>. ' +
+      'The AI is doing the exact same thing in secret — it only ever reacts to the state of the map as of your last End Turn, never to ' +
+      'what you are about to do. When you press End Turn, both sides\' orders resolve together: movement, combat, supply, and the economy ' +
+      'all happen in one pass, and the results are revealed at once in the Battle Report.</p></div>' +
+
+      '<div class="rules-section"><h4>The Map</h4><ul>' +
+      '<li>21 regions from Normandy to Berlin, each with a <b>terrain</b> type that gives the defender a combat bonus and costs movement points.</li>' +
+      '<li>Regions are colored by controller (<span class="pill allies">Allies</span> / <span class="pill axis">Axis</span>); the dashed orange line is the <b>front line</b> — any edge between two regions held by different sides.</li>' +
+      '<li><span class="rules-kbd">⚓</span> coastal/port &nbsp; <span class="rules-kbd">🚉</span> rail hub &nbsp; <span class="rules-kbd">★</span> capital (Berlin) &nbsp; <span class="rules-kbd">⚠</span> cut off from supply &nbsp; <span class="rules-kbd">⚔</span> a battle happened here last turn.</li>' +
+      '<li>Drag to pan, scroll or use the +/− buttons to zoom, click a region to inspect it.</li>' +
+      '</ul></div>' +
+
+      '<div class="rules-section"><h4>Supply</h4><p>' +
+      'Each side\'s supply network radiates out from the regions it controls that are coastal ports or rail hubs, through its own territory, ' +
+      'up to a limited logistics range (upgradeable). A region beyond that range is <b>cut off</b>: its garrison fights at reduced strength, ' +
+      'its morale decays every turn, and it stops contributing to the national economy. The Allies start with only two small ports, so holding ' +
+      '(and eventually capturing more of) the coast matters as much as winning battles.</p></div>' +
+
+      '<div class="rules-section"><h4>Economy</h4><p>Three resources, generated every turn by your <b>supplied</b> regions:</p><ul>' +
+      '<li><b>Manpower</b> — recruits units.</li>' +
+      '<li><b>Production</b> — builds units and funds research.</li>' +
+      '<li><b>Fuel</b> — required to move or support with armor, mechanized infantry, aircraft, and ships. Running short degrades those units\' readiness that turn.</li>' +
+      '</ul><p class="small">The Allies also draw a flat off-map stipend every turn, representing the US/UK home front shipping men and material across the Channel — without it a 2-region beachhead could never keep pace with occupied France and Germany\'s ~19 regions.</p></div>' +
+
+      '<div class="rules-section"><h4>Units</h4><p>Move and Fuel are per-turn figures; Cost is Manpower/Production. Ground units move one adjacent region per turn (Airborne can paradrop up to 2 regions, and a Transport in a coastal region can sealift ground units to any other coastal region). Air and naval units don\'t occupy ground — they\'re assigned a <b>Support</b> order to a nearby battle, adding to whichever side they belong to; enemy fighters on air-superiority duty intercept and cancel enemy bomber/CAS/naval support.</p>' +
+      unitStatsRows() + '</div>' +
+
+      '<div class="rules-section"><h4>Combat</h4><p>' +
+      'When your units move into a region an enemy still holds, a battle is fought. Each side\'s power is the sum of its ground units\' ' +
+      'attack (attacker) or defense (defender), scaled by unit strength and morale, plus any artillery/air/naval support — the defender\'s ' +
+      'total also gets the terrain\'s defense bonus. The ratio of attack to defense decides the outcome: a big enough edge (≈1.3×) captures ' +
+      'the region, a narrow edge or less is a stalemate, and a bad ratio gets the attacker bloodily repulsed. Losers take strength losses and, ' +
+      'if beaten decisively, must retreat to a friendly adjacent region or risk being destroyed outright.</p></div>' +
+
+      '<div class="rules-section"><h4>Morale</h4><p>' +
+      'Every unit has morale (0–100) that rises when it wins or rests in supply, and falls when it loses or is cut off. Morale scales combat ' +
+      'strength (roughly 0.55×–1.15×) and, when a losing unit needs to retreat, low morale raises the odds it is overrun and destroyed instead.</p></div>' +
+
+      '<div class="rules-section"><h4>Upgrades</h4><p>' +
+      'Spend Production in the <b>Upgrades</b> tab to research global bonuses (logistics range, production/manpower/fuel efficiency, artillery ' +
+      'support, morale recovery) and to unlock stronger unit variants — Heavy Armor and Jet Fighters — once their prerequisites are met.</p></div>' +
+
+      '<div class="rules-section"><h4>Commanders</h4><p>' +
+      'In the <b>Commanders</b> tab you can delegate. The <b>Front Commander</b> auto-moves and auto-attacks with any unit you have not personally ' +
+      'given an order this turn, according to a stance (Aggressive / Balanced / Defensive). The <b>Economic Commander</b> auto-spends any Manpower/' +
+      'Production you have not personally spent, toward a priority (Armor / Infantry / Air / Navy / Tech / Balanced). Give a unit a manual order, ' +
+      'or spend resources yourself, and that overrides the automation for just that unit or resource — everything else still gets handled.</p></div>' +
+
+      '<div class="rules-section"><h4>AI Difficulty</h4><p>Four tiers, chosen at the start of the campaign. Higher tiers attack with a lower ' +
+      'required advantage, reinforce and use air/naval support more reliably, research more readily, <em>and</em> get a straight income bonus:</p>' +
+      '<table class="rules-table"><thead><tr><th>Tier</th><th>Style</th><th class="num">Resource bonus</th></tr></thead><tbody>' +
+      Object.keys(global.WWG.AI.DIFFICULTY_INFO).map(function (k) {
+        const d = global.WWG.AI.DIFFICULTY_INFO[k];
+        return '<tr><td>' + d.label + '</td><td>' + d.desc + '</td><td class="num">' + (d.resourceMult >= 1 ? '+' : '') + Math.round((d.resourceMult - 1) * 100) + '%</td></tr>';
+      }).join('') + '</tbody></table></div>' +
+
+      '<div class="rules-section"><h4>Controls</h4><ul>' +
+      '<li>Click a region to open it in the <b>Region</b> tab.</li>' +
+      '<li>Click a unit\'s <b>Move</b>/<b>Drop</b>/<b>Ship</b>/<b>Support</b> button, then click a highlighted destination on the map.</li>' +
+      '<li>Review or cancel everything queued in the <b>Orders</b> tab before you commit.</li>' +
+      '<li><b>Save</b>/<b>Load</b> in the top bar manage named save slots in your browser; the game also autosaves after every turn.</li>' +
+      '</ul></div>';
+
+    $('tab-rules').innerHTML = html;
+  }
+
   /* ---------------- Event delegation ---------------- */
 
   let delegated = false;
@@ -340,13 +436,25 @@
 
   /* ---------------- Turn resolution / results ---------------- */
 
-  function summarizeResults(results) {
-    if (!results) return '';
-    const captured = results.captures.length;
-    const battles = results.battles.length;
-    let msg = 'Turn ' + results.turn + ' resolved: ' + battles + ' battle' + (battles === 1 ? '' : 's') +
-      ', ' + captured + ' region' + (captured === 1 ? '' : 's') + ' changed hands.';
-    return msg;
+  function outcomeClass(o) { return o === 'attacker_win' ? 'win' : (o === 'attacker_repulsed' ? 'repulsed' : 'stalemate'); }
+  function outcomeLabel(o) { return o === 'attacker_win' ? 'Captured' : (o === 'attacker_repulsed' ? 'Repulsed' : 'Stalemate'); }
+
+  function showBattleReport(results) {
+    $('battle-report-title').textContent = 'Turn ' + results.turn + ' Report — ' + results.dateLabel;
+    let html = '';
+    (results.battles || []).forEach(function (b) {
+      const cls = outcomeClass(b.outcome);
+      html += '<div class="battle-card ' + cls + '"><div class="bc-top">' +
+        '<span>⚔ ' + global.WWG.State.factionLabel(b.attacker) + ' attack ' + esc(b.regionName) + ' (' + global.WWG.State.factionLabel(b.defender) + ')</span>' +
+        '<span class="bc-outcome">' + outcomeLabel(b.outcome) + '</span></div>' +
+        '<div class="bc-stats">Attack ' + b.attackPower.toFixed(1) + ' vs Defense ' + b.defensePower.toFixed(1) + ' (ratio ' + b.ratio.toFixed(2) + ') — ' +
+        'losses: attacker −' + b.attackerLossPts.toFixed(0) + ' pts, defender −' + b.defenderLossPts.toFixed(0) + ' pts</div></div>';
+    });
+    (results.captures || []).filter(function (c) { return !c.contested; }).forEach(function (c) {
+      html += '<div class="capture-card"><span>🏳 ' + global.WWG.State.factionLabel(c.to) + ' advance into undefended ' + esc(global.WWG.State.getRegion(c.regionId).name) + '</span></div>';
+    });
+    $('battle-report-body').innerHTML = html || '<p class="small">No engagements this turn.</p>';
+    $('battle-report-modal').classList.remove('hidden');
   }
 
   function endTurn() {
@@ -354,10 +462,17 @@
     ui.armedUnit = null;
     const results = global.WWG.TurnEngine.resolveTurn(ui.state);
     ui.state.selectedRegion = null;
-    showToast(summarizeResults(results), 6000);
+    ui.state.lastBattleRegions = (results.battles || []).map(function (b) {
+      return { regionId: b.regionId, outcome: b.outcome, attacker: b.attacker, defender: b.defender };
+    });
     global.WWG.Save.save(ui.state, global.WWG.Save.AUTOSAVE_SLOT, 'Autosave');
     renderAll();
-    if (ui.state.gameOver) showVictoryBanner(ui.state.gameOver);
+    if ((results.battles && results.battles.length) || (results.captures && results.captures.length)) {
+      showBattleReport(results);
+    } else {
+      showToast('Turn ' + results.turn + ' resolved: no engagements.', 3500);
+      if (ui.state.gameOver) showVictoryBanner(ui.state.gameOver);
+    }
   }
 
   function showVictoryBanner(go) {
@@ -475,6 +590,10 @@
     });
 
     $('end-turn-btn').addEventListener('click', endTurn);
+    $('battle-report-close-btn').addEventListener('click', function () {
+      $('battle-report-modal').classList.add('hidden');
+      if (ui.state.gameOver) showVictoryBanner(ui.state.gameOver);
+    });
     $('zoom-in').addEventListener('click', function () { global.WWG.MapRender.zoomIn(); });
     $('zoom-out').addEventListener('click', function () { global.WWG.MapRender.zoomOut(); });
     $('zoom-reset').addEventListener('click', function () { global.WWG.MapRender.resetView(); });
@@ -487,7 +606,8 @@
       '<span><span class="legend-swatch" style="background:' + global.WWG.MapRender.FACTION_COLOR.allies + '"></span>Allies</span>' +
       '<span><span class="legend-swatch" style="background:' + global.WWG.MapRender.FACTION_COLOR.axis + '"></span>Axis</span>' +
       '<span>⚠ = cut off from supply</span><span>⚓ = coastal/port</span><span>🚉 = rail hub</span><span>★ = capital</span>' +
-      '<span style="color:#e0703d;">┅┅</span><span>front line</span>';
+      '<span style="color:#e0703d;">┅┅</span><span>front line</span>' +
+      '<span>⚔ = battle last turn</span><span>🪖 ground · ✈️ air · 🚢 naval</span>';
   }
 
   global.WWG = global.WWG || {};

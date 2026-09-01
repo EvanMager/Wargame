@@ -76,7 +76,8 @@
       log: [],
       gameOver: null,
       nextUnitId: 1,
-      selectedRegion: null
+      selectedRegion: null,
+      lastBattleRegions: []
     };
 
     Object.assign(state.factions.allies, STARTING_RESOURCES.allies);
