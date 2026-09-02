@@ -108,6 +108,14 @@ hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
 .legend-swatch { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
 .legend-front-swatch { width: 22px; height: 3px; border-radius: 2px; display: inline-block; background: #ffb47a; box-shadow: 0 0 6px 1px rgba(255,138,76,.8); }
 
+/* Below this width the side panel's fixed 400px would squeeze the map to nothing
+   (a real bug found by playtesting at phone width) — stack them instead. */
+@media (max-width: 860px) {
+  #main-layout { flex-direction: column; }
+  #map-panel { flex: none; height: 42vh; min-height: 220px; }
+  #side-panel { width: 100%; flex: 1; border-left: none; border-top: 1px solid var(--border); }
+}
+
 /* ---------- Region areas ---------- */
 .region-node { cursor: pointer; }
 .region-area { transition: filter .1s; }

@@ -103,6 +103,31 @@
     return result || [];
   }
 
+  // Committing every ground unit in a region to move/attack elsewhere leaves it with
+  // zero combat power to defend itself — an easy, easy-to-miss mistake (found by
+  // actually playtesting: it's exactly what "Select All" + "Move Selected" invites).
+  // Warn, non-blockingly, whenever that's about to happen.
+  function regionsLeftUndefended(state, faction, unitIds, stillDefendsFn) {
+    const origins = {};
+    unitIds.forEach(function (id) { const u = state.units[id]; if (u) origins[u.regionId] = true; });
+    const emptied = [];
+    Object.keys(origins).forEach(function (regionId) {
+      const stillHome = global.WWG.State.unitsInRegion(state, regionId, faction).some(function (u) {
+        return Data.UNIT_TYPES[u.type].category === 'ground' && stillDefendsFn(u);
+      });
+      if (!stillHome) emptied.push(regionId);
+    });
+    return emptied;
+  }
+
+  function warnIfUndefended(state, faction, unitIds, stillDefendsFn) {
+    const emptied = regionsLeftUndefended(state, faction, unitIds, stillDefendsFn);
+    if (emptied.length > 0) {
+      const names = emptied.map(function (rid) { return global.WWG.State.getRegion(rid).name; }).join(', ');
+      showToast('⚠ ' + names + ' will have no ground defenders left.', 5000);
+    }
+  }
+
   function handleRegionClick(regionId) {
     if (ui.armedUnit) {
       const faction = ui.state.playerFaction;
@@ -112,6 +137,7 @@
         global.WWG.LiveEngine.setStance(ui.state, faction, ids, 'attacking', regionId).forEach(function (r) {
           if (r.ok) okCount++; else failReason = r.reason;
         });
+        if (okCount > 0) warnIfUndefended(ui.state, faction, ids, function (u) { return u.stance !== 'attacking'; });
       } else {
         ids.forEach(function (id) {
           const res = ui.armedUnit.mode === 'support'
@@ -119,6 +145,9 @@
             : global.WWG.TurnEngine.addMoveOrder(ui.state, faction, id, regionId, ui.armedUnit.mode);
           if (res.ok) okCount++; else failReason = res.reason;
         });
+        if (okCount > 0 && ui.armedUnit.mode !== 'support') {
+          warnIfUndefended(ui.state, faction, ids, function (u) { return !global.WWG.TurnEngine.findMoveOrder(ui.state, faction, u.id); });
+        }
       }
       ui.armedUnit = null;
       ui.selectedUnits = {};
@@ -327,7 +356,12 @@
 
       const selectedIds = selectedUnitIdsInCurrentRegion();
       if (selectedIds.length > 1) {
+        const groundHere = units.filter(function (u) { return u.faction === state.playerFaction && Data.UNIT_TYPES[u.type].category === 'ground'; });
+        const selectedGroundCount = selectedIds.filter(function (id) { return Data.UNIT_TYPES[state.units[id].type].category === 'ground'; }).length;
+        const wouldEmpty = groundHere.length > 0 && selectedGroundCount >= groundHere.length;
+
         html += '<div class="quick-move-bar">';
+        if (wouldEmpty) html += '<div class="small" style="color:var(--bad);width:100%;">⚠ This is every ground unit here — the region will be undefended.</div>';
         if (isLive) {
           const targets = computeLiveIntersectedTargets(state, selectedIds);
           if (targets.length) html += '<button class="primary" data-action="arm-attack-multi">Attack Selected (' + selectedIds.length + ')</button>';
